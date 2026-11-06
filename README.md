@@ -37,33 +37,39 @@ bash tools/make-ipa.sh       # 打包 → dist/SoujuShell.ipa（ad-hoc 签名，
 
 ### 装到 iPhone
 
-**方式 A：Xcode**（能调试，7 天需重签）
+完整说明见 **[`docs/install-iphone.md`](docs/install-iphone.md)**。这里只留结论。
 
-1. `open SoujuShell.xcodeproj`
-2. target → **Signing & Capabilities** → `Team` 选 **Personal Team**（免费 Apple ID 即可）
-3. `Bundle Identifier` 已经是 `com.wuxiaogang.soujushell`，想换就换（必须全球唯一）
-4. 顶部选你的 iPhone → `⌘R`
+**方式 A：Sideloadly**（当前环境下唯一可行，已装在 `/Applications`）
 
-**方式 B：SideStore / AltStore**（不用 Xcode，能自动续签）
+```bash
+bash tools/make-ipa.sh            # 产出 dist/SoujuShell.ipa
+open -a Sideloadly                # 拖入 ipa → 填 Apple ID → Start
+```
 
-把 `dist/SoujuShell.ipa` 导入 SideStore，用它自带的 Apple ID 重签安装。
+**方式 B：Xcode `⌘R`** —— ⚠️ **本机不可用**。这台 Mac 是 macOS 12.7.6 + Xcode 14.2，
+其真机调试只支持到 **iOS 16.2**，插上 iOS 27 手机直接报 device not supported。
+这与工程配置无关，是工具链版本差 10 个大版本，别在这条路上耗时间。
 
-首次安装后，手机上要**信任证书**：设置 → 通用 → VPN与设备管理 → 开发者 App → 信任。
+首次安装后手机上要**信任证书**：设置 → 通用 → VPN 与设备管理 → 开发者 App → 信任。
+另外 iOS 16 起必须先开 **设置 → 隐私与安全性 → 开发者模式**，否则装完点不亮。
 
 ### 自签的现实约束
 
 | 项目 | 免费 Apple ID | 付费开发者账号（$99/年） |
 |---|---|---|
-| 证书有效期 | **7 天**，到期重签 | 1 年 |
+| 证书有效期 | **7 天** | 1 年 |
 | 同时可装 App | 3 个 | 不限 |
 | 推送 / 部分 Entitlement | 不可用（本工程不依赖） | 可用 |
-| 重签方式 | Xcode 再 `⌘R` 一次 | 过期前重装 |
+| 续签方式 | Sideloadly 后台自动（Mac 需常开 + 同 Wi-Fi） | 一年一次重签 |
+| TrollStore 永久签名 | ❌ 仅支持到 iOS 17.0 | ❌ 同左 |
 
-7 天过期后会变成"无法打开"。两种做法：
-1. **手动**：每周连一次 Mac，Xcode `⌘R`。最省事，缺点是要记着。
-2. **自动续签**：装 [SideStore](https://sidestore.io)（在设备上自签，配合 WireGuard 本地回环），或用 AltStore。配置比手动麻烦，但一次搞定后不用管。
+**「永久签名」在 iOS 27 上没有技术解**。唯一的永久方案 TrollStore 靠 CoreTrust 漏洞，
+适用区间是 iOS 14.0–16.6.1 / 16.7 RC / 17.0，本机 27.0.1 完全够不着。
+能做的只有把续签自动化：Sideloadly 的 Auto Refresh 把 7 天压成"不用管"，
+付费账号把 7 天压成 365 天——两者都不是永久，只是维护频率不同。
 
-> 想彻底免掉 7 天限制，只能上付费账号 + 自签 IPA，属同一套流程。
+> 7 天到期 App 会闪退。**不要卸载**，直接用 Sideloadly 再 Start 一遍覆盖安装，
+> Bundle ID 不变则沙盒数据全保留（站点登录态、播放进度都在 WKWebView 的 localStorage 里）。
 
 ---
 
@@ -632,6 +638,7 @@ tools/
 └─ setup-xcode.sh      用 xcodes 走命令行下载（Apple 已关这条通道，留作记录）
 
 docs/preview.html      界面预览（浏览器直接打开）
+docs/install-iphone.md 装到 iPhone 的完整路径（签名能撑多久 / Sideloadly 步骤 / 故障排查）
 docs/shots/            实跑截图（skin-dark-* 深色介质，skin-home-* 首页布局，skin-tonight-* 今晚首选封面卡）
 ```
 
