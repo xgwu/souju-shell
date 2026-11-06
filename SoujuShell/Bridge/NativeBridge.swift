@@ -65,6 +65,33 @@ final class NativeBridge: NSObject, WKScriptMessageHandler {
             controller?.presentExternal(url: url, title: title)
             reply(operationID, ["ok": true, "opened": true, "mode": "external", "url": url])
 
+        // MARK: 主题
+        //
+        // 站点 header 右上角那个日/夜按钮，皮肤 JS 会把它接管（站点自己的点击
+        // 会被皮肤的抗覆盖观察器纠正回来，等于点了没反应），转成这两个调用。
+        // 不是站点协议的一部分，是我们和皮肤 JS 之间的私有约定。
+
+        case ("shell", "toggleTheme"), ("shell", "setTheme"):
+            let current = ShellSettings.shared.activeSkin
+            let next: SkinPreset
+            if method == "setTheme" {
+                let mode = (params["mode"] as? String) ?? "dark"
+                next = mode == "light" ? .soujuLight : .soujuDark
+            } else {
+                next = current.isDark ? .soujuLight : .soujuDark
+            }
+            model.log("shell", "主题切换 \(current.rawValue) → \(next.rawValue)")
+            controller?.switchSkin(to: next)
+            reply(operationID, ["ok": true, "mode": next.isDark ? "dark" : "light", "skin": next.rawValue])
+
+        case ("shell", "getTheme"):
+            let current = ShellSettings.shared.activeSkin
+            reply(operationID, [
+                "ok": true,
+                "mode": current.isDark ? "dark" : "light",
+                "skin": current.rawValue
+            ])
+
         // MARK: 下载
 
         case ("download", "enqueue"):

@@ -142,7 +142,10 @@ final class ShellViewController: UIViewController {
         var jsParts: [String] = []
 
         if !skin.css.isEmpty {
-            cssParts.append("/* ===== skin: \(skin.rawValue) ===== */\n" + skin.css)
+            // 内置皮肤把两套介质一起下发：页内热切换（站点右上角的日/夜按钮、
+            // 工具箱的主题开关）只改 data-skin 属性，不用重建样式、不用 reload。
+            let css = skin.bundlesBothMedia ? SkinPreset.dualCSS : skin.css
+            cssParts.append("/* ===== skin: \(skin.rawValue) ===== */\n" + css)
             jsParts.append(skin.js)
         }
 
@@ -183,8 +186,69 @@ final class ShellViewController: UIViewController {
         webView.reload()
     }
 
-    // MARK: - 线路与导航
+    /// 切主题：优先**页内热切换**，不刷新页面。
+    ///
+    /// 两套介质的样式在注入时就已经一起下发了（`SkinPreset.dualCSS`），
+    /// 换介质只是把 `data-skin` / `data-theme` / `html.dark` 改一遍，
+    /// 由页面里的 `window.__soujuSetTheme` 负责（它还会顺手重跑一次 sync）。
+    ///
+    /// 什么情况才回落 reload：
+    ///   - 切之前是「站点原样」，页面里根本没有皮肤样式；
+    ///   - 注入被关掉 / 页面还没跑到 documentEnd，拿不到那个函数。
+    /// 这两条都会让热切换静默失败，所以用返回值判断，而不是假设它一定成功。
+    func switchSkin(to preset: SkinPreset) {
+        let previous = ShellSettings.shared.activeSkin
+        ShellSettings.shared.chooseSkin(preset)
 
+        guard previous.bundlesBothMedia, preset.bundlesBothMedia else {
+            model.log("skin", "\(previous.rawValue) → \(preset.rawValue)：需要重建注入")
+            applyCustomInjection()
+            return
+        }
+
+        let mode = preset.isDark ? "dark" : "light"
+        let js = "window.__soujuSetTheme ? window.__soujuSetTheme(\"\(mode)\") : false"
+        webView.evaluateJavaScript(js) { [weak self] result, _ in
+            guard let self = self else { return }
+            if (result as? Bool) == true {
+                self.model.log("skin", "热切换 → \(preset.rawValue)（未重载页面）")
+            } else {
+                self.model.log("skin", "热切换不可用，重建注入 → \(preset.rawValue)")
+                self.applyCustomInjection()
+            }
+        }
+    }
+
+    #if DEBUG
+    /// 调试：在页面里对站点自带的日/夜按钮派发一次真实点击。
+    /// 模拟器没法脚本化点按（`simctl` 没有 tap 命令），只能从页面内部派发事件；
+    /// 这样走的是和手指点击完全相同的捕获链路，能覆盖「接管 → 桥 → 热切换」全流程。
+    func debugTapThemeButton() {
+        let js = """
+        (function () {
+          var b = document.querySelector('button[aria-label*="主题"]')
+               || document.querySelector('button[title="亮色"]')
+               || document.querySelector('button[title="暗色"]');
+          if (!b) {
+            var svgs = document.querySelectorAll('svg');
+            for (var i = 0; i < svgs.length; i++) {
+              var c = svgs[i].getAttribute('class') || '';
+              if (/lucide-(sun|moon)/.test(c)) { b = svgs[i].closest('button'); break; }
+            }
+          }
+          if (!b) { return 'no-button'; }
+          b.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+          return 'clicked:' + (b.getAttribute('aria-label') || b.getAttribute('title') || '');
+        })();
+        """
+        webView.evaluateJavaScript(js) { [weak self] result, error in
+            let text = (result as? String) ?? error.map { "\($0)" } ?? "nil"
+            self?.model.log("debug", "模拟点击主题按钮 → \(text)")
+        }
+    }
+    #endif
+
+    // MARK: - 线路与导航
     private func start() {
         domainQueue = orderedDomains()
         currentDomainIndex = 0

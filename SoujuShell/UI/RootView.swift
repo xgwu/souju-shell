@@ -45,6 +45,12 @@ struct RootView: View {
         if UserDefaults.standard.bool(forKey: "souju-toolbox") {
             model.showToolbox = true
         }
+        // `-souju-tap-theme 1`：等页面渲染完后派发一次主题按钮点击，验证热切换链路
+        if UserDefaults.standard.bool(forKey: "souju-tap-theme") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 9) {
+                model.debugTapThemeButton()
+            }
+        }
         #endif
     }
 

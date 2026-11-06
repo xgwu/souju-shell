@@ -169,4 +169,18 @@ final class ShellModel: ObservableObject {
     func applyCustomInjection() {
         controller?.applyCustomInjection()
     }
+
+    /// 切主题。两套介质都已在页面里，正常情况只改属性、不刷新；
+    /// 只有从「站点原样」切过来（页面里还没有皮肤样式）才需要重建注入。
+    func switchSkin(to preset: SkinPreset) {
+        controller?.switchSkin(to: preset)
+    }
+
+    #if DEBUG
+    /// 调试：对站点自带的日/夜按钮发一次真实点击，用来验证「接管 → 桥 → 热切换」整条链路。
+    /// 模拟器没法脚本化点按（`simctl` 没有 tap 命令），只能从页面里派发事件。
+    func debugTapThemeButton() {
+        controller?.debugTapThemeButton()
+    }
+    #endif
 }

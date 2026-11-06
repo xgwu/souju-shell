@@ -85,6 +85,7 @@ bash tools/make-ipa.sh       # 打包 → dist/SoujuShell.ipa（ad-hoc 签名，
 | **原生播放器接管**（`aimovie_native_v1`） | ❌ 有意不做 | 见第 5 节 |
 | 弹幕 / 一起看 | ❌ | 站点能力，壳不介入 |
 | **整站换肤**（搜剧 Dark 默认 / Light） | ✅ | `Bridge/SkinPreset.swift`，工具箱 → 主题一键切换，偏好持久化 |
+| **跟站点日/夜按钮联动** | ✅ | header 右上角那个按钮点一下就换介质，不重载页面 |
 | **首页「今晚首选」置顶卡** | ✅ 皮肤 JS 注入 | 取日历里今天更新、且不在追的那一部 |
 | **周表「只看未看过」筛选** | ✅ 皮肤 JS 注入 | 判定依据是站点自己的 `playback-resume` |
 | **短剧竖屏流跟随介质** | ✅ 皮肤 CSS | `/short-drama` 与详情页、选集抽屉一并转墨玉（浅色下转纸白） |
@@ -189,6 +190,10 @@ bash tools/make-ipa.sh       # 打包 → dist/SoujuShell.ipa（ad-hoc 签名，
 | 首页顶部浓缩（chips 单行） | 无头 Chromium 注入真实皮肤实测：提示条 164→40px、顶部 336→212px、「本周追剧」y=605→481；375/390/430 三宽度均为一行（可视 351/366/406，内容 778）；`scrollLeft` 可置 412 上限，滑动后行高不变 |
 | 浓缩后其余路由 | `/updates`、`/short-drama` 同皮肤实测无错位（选择器限定在 `.movie-home-prompt-groups`，非首页不命中） |
 | 首页 hero 标题移除 | 同页 A/B：hero 220→174px、搜索框 y=118→72、「本周追剧」y=474→428；`/updates` 上那个 `.text-center` 未被误伤（规则挂在 `.movie-home-page-shell` 下，该页 `homeShell=false`）；模拟器实装确认标题已消失、无空盒残留 |
+| 站点日/夜按钮联动（无头） | 滚动到出现 header 按钮后点它：`data-skin` dark→light、`body` 变 `rgb(250,250,248)`、滚动位置保持 900（未 reload）；站点自己的 `aria-label` 跟着从「切换亮色主题」变「切换暗色主题」、图标 sun→moon；再点一次全部回滚 |
+| 站点日/夜按钮联动（模拟器） | `-souju-tap-theme 1` 派发真实点击：日志 `[shell] 主题切换 souju-dark → souju-light` → `[skin] 热切换 → souju-light（未重载页面）`；截图确认整页转纸白且内容未重建 |
+| 主题偏好持久化 | 切浅色后杀进程重启仍是浅色；再次点击回到深色，`shell.skin` 一路跟随 |
+| 抗覆盖边界 | 非用户点击造成的 `data-theme` 变化（模拟站点渲染后自行重置）在 200ms 内被纠正回皮肤对应主题，且**不写入**偏好 |
 | 默认深色启动 | 首次安装直接落 `data-skin="souju-dark"`；老安装里 `shell.skin` 为旧默认值 `souju-light`、且 `shell.skinExplicit` 为假 → 启动时自动改写为 `souju-dark`（`simctl` 读 plist 确认已落盘） |
 | 主题开关 | 工具箱顶部「主题」默认选中**深色**；点「浅色」即时切到纸白（`body` 回 `rgb(250,250,248)`、`data-skin="souju-light"`），杀进程重启后仍是浅色（`skinExplicit` 已置真，不再被迁移覆盖） |
 | 深色全路由无回归 | `/`、`/updates`、`/player/...`、`/short-drama` 四页截图逐一比对：画布 `#0E0E10`、卡片 `#191A1D` + 1px 描边、文字暖白；tab 选中态为暖白下划线而非橙；浅色版同四页无变化 |
@@ -301,13 +306,56 @@ JS 同理只有一份模板 `skinJSTemplate`，三处占位 `__SKIN__` / `__THEM
 
 #### 默认深色 + 一个开关 + 一次迁移
 
-- `ShellSettings` 默认 `souju-dark`；工具箱顶部「主题」是深/浅两枚按钮，
-  点一下写偏好 → `applyCustomInjection()` 重建注入 → reload，登录态和播放进度都在站点侧，不受影响。
+- `ShellSettings` 默认 `souju-dark`；工具箱顶部「主题」是深/浅两枚按钮，点一下写偏好 →
+  页内热切换（见下节），不重载页面，登录态和播放进度都在站点侧，不受影响。
 - 老安装里存的 `souju-light` 是**旧版本的默认值**，不是用户的选择：
   启动时若 `shell.skin == souju-light` 且没有 `shell.skinExplicit` 标记，一次性迁到 `souju-dark`。
   用户一旦在主题开关里点过，`skinExplicit` 置真，之后不再覆盖他的选择。
 - 深色皮肤把状态栏切成浅色图标（`lightContent`）；短剧页仍然交回站点——那一页顶部就是视频画面，
   明暗不可控，深色图标和浅色图标都会有时候看不见。
+
+#### 两套介质一起下发，切换只改一个属性
+
+**踩过的坑**：站点 header 右上角（滚动后出现）和侧边栏各有一个自带的日/夜按钮。
+皮肤的抗覆盖观察器会在几百毫秒内把 `data-theme` 纠正回来，所以用户点它**永远是深色**，
+像是按钮坏了。这不是站点的 bug，是"皮肤和站点抢同一个属性"的必然结果。
+
+解法分两步，缺一不可：
+
+1. **注入时两套 CSS 一起下发**（`SkinPreset.dualCSS`）。两套规则的基线选择器分别是
+   `html[data-skin="souju-light"]` 与 `"souju-dark"`，天然互斥，同处一张表不会串味。
+   换介质只是改三个属性（`data-skin` / `data-theme` / `html.dark`），样式表不用重建、更不用 reload。
+   代价是 CSS 体积翻倍（约 35KB → 85KB），一次性下载、之后切换零成本。
+2. **不拦站点的点击，而是跟着它切**。拦掉点击当然最省事，但站点的图标和 `aria-label`
+   就永远停在"切换亮色主题"，按钮开始说谎。现在改成：捕获阶段只**记录**一次点击时间戳
+   （`themeIntentAt`），点击照常交给站点；观察器下一次看到 `data-theme` 变化时，
+   若在 1.5s 窗口内就认它（跟随切换 + 通过桥把偏好存进 `ShellSettings`），
+   窗口外才当成站点自己重置、纠正回来。
+
+```js
+function followSiteTheme() {
+  if (h.getAttribute("data-skin") !== SKIN) { h.setAttribute("data-skin", SKIN); }
+  var t = h.getAttribute("data-theme");
+  if (!t || t === THEME) { return; }
+  if (themeIntentAt && Date.now() - themeIntentAt < 1500) {
+    themeIntentAt = 0;
+    var mode = t === "movie-light" ? "light" : "dark";
+    applyMode(mode);      // 跟着站点走
+    persistMode(mode);    // 告诉原生：这是用户的选择
+    return;
+  }
+  applyTheme();           // 不是用户点的，纠正回来
+}
+```
+
+时间窗口是关键：没有它，站点渲染完自己重置主题会把皮肤随机带走；有了它，
+"用户点的"和"站点自己改的"这两种同名事件才区分得开。
+
+桥上是三个私有方法（不进 `capabilities`，站点不认识也不需要认识）：
+`shell.toggleTheme`（无参，取反）、`shell.setTheme {mode}`（幂等，皮肤跟随站点时用）、
+`shell.getTheme`（回当前介质）。原生侧统一走 `ShellViewController.switchSkin(to:)`：
+先 `ShellSettings.chooseSkin` 落偏好，再 `evaluateJavaScript("__soujuSetTheme(...)")` 换介质；
+返回 `false`（页面还没跑到 documentEnd、或当前是「站点原样」没有皮肤样式）才回落到重建注入 + reload。
 
 **首页顶部信息浓缩（2026-11-06）**：站点把搜索提示做成两段「分组标题 + chips」并允许折行——
 热门影片 7 个 chip 折成 3 行，推荐输入只有 1 个 chip 却独占 1 行；再加上搜索框的控制行
@@ -497,6 +545,11 @@ script-src 'self' https:            → 没有 unsafe-inline / unsafe-eval
 11. **深色是派生的，所以"深色专属"必须有纪律**。任何只在暗底成立的微调都要写进 `soujuDarkLayerCSS`；
     图省事塞回 `soujuLightCSS` 里，浅色会被一起改坏。反过来，布局改动只写 light 一份，
     别在介质层里重复结构——否则以后调一次布局要改两处，派生策略就白费了。
+12. **皮肤 CSS 是两份一起下发的**（约 85KB），换介质才能做到零重载。从「站点原样」切回内置皮肤、
+    或反过来，页面里没有对应的样式表，这种切换仍要重建注入 + reload。
+13. **主题跟随只认站点写 `data-theme`**。站点若改成只切 `class="dark"` 而不写 `data-theme`，
+    那条"跟随"路径会失效，退回原来的"强制纠正"行为（表现为：点站点按钮又变成没反应）。
+    站点改版后如果发现这个按钮失灵，先看 `html` 属性有没有变。
 
 ---
 
@@ -517,6 +570,9 @@ script-src 'self' https:            → 没有 unsafe-inline / unsafe-eval
 - **关掉下载能力**：工具箱 → 离线下载开关。关掉后站点自动隐藏下载入口，用于判断"某个问题是不是下载模块引起的"。
 - **模拟器里开工具箱**：模拟器没有摇一摇也没有双指下滑，DEBUG 版支持启动参数直开——
   `xcrun simctl launch <device> com.wuxiaogang.soujushell -souju-toolbox 1`。
+- **验证主题按钮联动**：`-souju-tap-theme 1` 会在启动 9 秒后对站点自带的日/夜按钮派发一次真实点击
+  （模拟器没法脚本化点按，`simctl` 没有 tap 命令）。日志里看
+  `[shell] 主题切换 …` → `[skin] 热切换 → …（未重载页面）` 两行就知道链路通了。
 - **绕过 UI 直接改皮肤**：`xcrun simctl spawn <device> defaults write com.wuxiaogang.soujushell 'shell\.skin' souju-dark`
   （键名里的点要转义，否则 `plutil`/`defaults` 会当路径解析）。改完必须 `simctl terminate` 再
   `simctl shutdown/boot`，否则进程带着旧偏好继续跑，会误判"改了没生效"。

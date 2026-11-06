@@ -42,6 +42,10 @@ enum SkinPreset: String, CaseIterable, Identifiable {
     /// 是否是「深色介质」的皮肤。工具箱的主题开关、状态栏取向都看这个。
     var isDark: Bool { self == .soujuDark }
 
+    /// 这个皮肤是否把两套介质都下发（因而可以在页内热切换）。
+    /// `.none` 不下发任何 CSS，切过去只能重建注入 + reload。
+    var bundlesBothMedia: Bool { self == .soujuDark || self == .soujuLight }
+
     var css: String {
         switch self {
         case .none: return ""
@@ -58,6 +62,19 @@ enum SkinPreset: String, CaseIterable, Identifiable {
         case .soujuLight:
             return SkinPreset.skinJS(skin: "souju-light", theme: "movie-light", dark: false)
         }
+    }
+
+    /// 注入用的样式：**两套介质一起下发**。
+    ///
+    /// 站点右上角自带一个日/夜切换按钮，用户点了要立刻见效。只下发当前那套，
+    /// 换介质就得重建 `<style>` + reload —— 表现是「点了整个页面重刷一遍」，
+    /// 还会把人从当前剧集页弹回首页。
+    ///
+    /// 两套规则的基线选择器分别是 `html[data-skin="souju-light"]` 与 `"souju-dark"`，
+    /// 天然互斥，同处一张表里不会串味；切换只是改一个属性，样式表完全不用动。
+    /// 代价是 CSS 体积翻倍（约 35KB → 85KB），一次性下载、页内切换零成本。
+    static var dualCSS: String {
+        soujuLightCSS + "\n\n/* ========== dark 介质 ========== */\n\n" + soujuDarkCSS
     }
 
     /// 两套皮肤共用同一段结构性 JS（今晚首选 / 只看未看过 / 主题纠偏 / 状态栏），
@@ -1629,6 +1646,7 @@ html[data-skin="souju-dark"] .short-drama-control-drawer-layer .react-player-epi
   var SKIN = "__SKIN__";
   var THEME = "__THEME__";
   var DARK = __DARK__;
+  window.__soujuMode = DARK ? "dark" : "light";
 
   // 换皮肤时页面会整体 reload，脚本重新执行；同一个皮肤内重复执行直接退出
   if (window.__soujuSkinLoaded === SKIN) { return; }
@@ -2009,6 +2027,24 @@ html[data-skin="souju-dark"] .short-drama-control-drawer-layer .react-player-epi
     }
   }
 
+  // ---------- 介质热切换 ----------
+  // 两套 CSS 都已经在页面里（见 SkinPreset.dualCSS），换介质只是改三个属性：
+  // data-skin（决定哪套规则生效）、data-theme（站点自己的令牌）、html.dark（Tailwind）。
+  // 不需要重建 <style>，更不需要 reload —— 切换是即时的，也不会把人从剧集页弹回首页。
+  function applyMode(mode) {
+    SKIN = mode === "light" ? "souju-light" : "souju-dark";
+    THEME = mode === "light" ? "movie-light" : "movie-dark";
+    DARK = mode !== "light";
+    window.__soujuMode = mode === "light" ? "light" : "dark";
+    applyTheme();
+    sync();
+  }
+
+  // 原生侧切完偏好后回调这里（NativeBridge 的 shell.toggleTheme / setTheme）
+  window.__soujuSetTheme = function (mode) {
+    try { applyMode(mode); return true; } catch (e) { return false; }
+  };
+
   // 一次 sync 把所有区块对齐到当前路由与最新数据
   function sync(force) {
     loadWatchData(force ? 0 : 1500);
@@ -2051,12 +2087,65 @@ html[data-skin="souju-dark"] .short-drama-control-drawer-layer .react-player-epi
   window.addEventListener("popstate", function () { sync(true); });
   window.addEventListener("hashchange", function () { sync(true); });
 
+  // ---------- 跟随站点自带的日/夜按钮 ----------
+  // 站点 header（滚动后出现）和侧边栏各有一个「切换亮色/暗色主题」按钮，点下去它会
+  // 自己改 data-theme、连带把图标和 aria-label 一起换掉。但皮肤的抗覆盖观察器会在
+  // 几百毫秒内把 data-theme 改回来 —— 用户看到的就是"点了没反应，一直是深色"。
+  //
+  // 这里**不拦点击**（拦了站点的图标和文案就永远不变，按钮会开始说谎），
+  // 而是让它切、然后跟着切：点过按钮之后的 1.5s 内，站点写什么主题我们就认什么，
+  // 顺手把偏好存进原生；过了这个窗口再发现主题被改，才当成异常纠正回来。
+  var RE_THEME_LABEL = /主题|亮色|暗色|日间|夜间/;
+  var RE_THEME_ICON = /lucide-(sun|moon)/;
+  var themeIntentAt = 0;
+
+  function themeButton(target) {
+    var node = target;
+    for (var i = 0; node && i < 6; i++) {
+      if (node.tagName === "BUTTON" || node.tagName === "A" || node.getAttribute("role") === "button") {
+        var label = (node.getAttribute("aria-label") || "") + " " + (node.getAttribute("title") || "");
+        if (RE_THEME_LABEL.test(label)) { return node; }
+        var svg = node.querySelector("svg");
+        if (svg && RE_THEME_ICON.test(svg.getAttribute("class") || "")) { return node; }
+        return null;
+      }
+      node = node.parentElement;
+    }
+    return null;
+  }
+
+  document.addEventListener("click", function (ev) {
+    if (!themeButton(ev.target)) { return; }
+    themeIntentAt = Date.now();
+  }, true);
+
+  function persistMode(mode) {
+    try {
+      var b = window.H5ShellNativeBridge;
+      if (b && typeof b.call === "function") { b.call("shell", "setTheme", { mode: mode }); }
+    } catch (e) {}
+  }
+
+  // 观察器每轮都调它：主题变了先判断"是不是用户刚点过按钮"
+  function followSiteTheme() {
+    var h = document.documentElement;
+    if (h.getAttribute("data-skin") !== SKIN) { h.setAttribute("data-skin", SKIN); }
+    var t = h.getAttribute("data-theme");
+    if (!t || t === THEME) { return; }
+    if (themeIntentAt && Date.now() - themeIntentAt < 1500) {
+      themeIntentAt = 0;
+      var mode = t === "movie-light" ? "light" : "dark";
+      applyMode(mode);
+      persistMode(mode);
+      return;
+    }
+    // 不是用户点的（站点渲染完自己重置主题），纠正回皮肤对应的那套
+    applyTheme();
+  }
+
   try {
     var observer = new MutationObserver(function () {
-      var h = document.documentElement;
-      if (h.getAttribute("data-skin") !== SKIN || h.getAttribute("data-theme") !== THEME) {
-        applyTheme();
-      }
+      followSiteTheme();
       scheduleSync();
     });
     observer.observe(document.documentElement, {

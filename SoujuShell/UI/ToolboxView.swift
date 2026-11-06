@@ -61,7 +61,7 @@ struct ToolboxView: View {
     /// 深色（墨玉 + 暖白 + 亮橙）是默认，浅色（纸白 + 墨黑 + 橙）给白天的户外用。
     /// 写 `settings.skin` 后重建注入并 reload，登录态与播放进度都在站点侧，不受影响。
     private var themeSection: some View {
-        Card(title: "主题", footnote: "切换会重载页面；登录与播放进度存在站点侧，不受影响") {
+        Card(title: "主题", footnote: "即时切换，不重载页面；与站点右上角的日/夜按钮是同一个开关") {
             HStack(spacing: 8) {
                 themeOption(.soujuDark, icon: "moon.stars.fill", label: "深色")
                 themeOption(.soujuLight, icon: "sun.max.fill", label: "浅色")
@@ -74,8 +74,7 @@ struct ToolboxView: View {
         let selected = settings.activeSkin == skin
         return Button {
             guard settings.skin != skin.rawValue else { return }
-            settings.chooseSkin(skin)
-            model.applyCustomInjection()
+            model.switchSkin(to: skin)
         } label: {
             HStack(spacing: 6) {
                 Image(systemName: icon)
