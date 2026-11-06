@@ -43,8 +43,13 @@ bash tools/make-ipa.sh       # 打包 → dist/SoujuShell.ipa（ad-hoc 签名，
 
 ```bash
 bash tools/make-ipa.sh            # 产出 dist/SoujuShell.ipa
-open -a Sideloadly                # 拖入 ipa → 填 Apple ID → Start
+bash tools/open-sideloadly.sh     # 启动 Sideloadly（钉死可用的 Apple IP），窗口别关
 ```
+
+> **别直接双击或 `open -a Sideloadly`**：`gsa.apple.com` 的 DNS 会轮询到已下线的 Apple IP
+> （`17.32.194.2` 是黑洞），Sideloadly 会永远停在 `Logging in ... 0%`。
+> 上面这个脚本会起一个把 Apple 域名钉到可用 IP 的本地代理再启动它。
+> 细节见 [`docs/install-iphone.md`](docs/install-iphone.md) 故障排查附录。
 
 **方式 B：Xcode `⌘R`** —— ⚠️ **本机不可用**。这台 Mac 是 macOS 12.7.6 + Xcode 14.2，
 其真机调试只支持到 **iOS 16.2**，插上 iOS 27 手机直接报 device not supported。

@@ -134,6 +134,8 @@ App 沙盒里的数据全部保留——站点登录态、播放进度、离线�
 |---|---|
 | **设置里根本没有「开发者模式」** | 这在装之前是**正常状态**。该项要等设备第一次装上开发签名的 App 才会被生成。先用 Sideloadly 把包装上（安装本身不依赖它），装完点开 App 触发「需要开发者模式」提示，再回设置看。**不要为了让它出现去装陌生的 IPA 或抹掉手机** |
 | 装完仍然没有 | 确认装进去的是开发签名包（Sideloadly 用你自己 Apple ID 签的就是）；重启一次 iPhone；`设置 → 隐私与安全性` 要**滑到最底部**才看得到 |
+| **登录卡在 `Logging in ... 0%` 不动** | 真凶通常是 **DNS 把 `gsa.apple.com` 解析到一个已下线的 Apple IP**（实测 `17.32.194.2:443` 是黑洞，SYN 无响应）。卡在 TCP 握手阶段，所以既不报错也不超时。**判据**：`lsof -nP -p <PID> \| grep 443` 若有 `SYN_SENT` 就是它。**处理**：`bash tools/open-sideloadly.sh`（走钉 IP 代理，见下节） |
+| 登录时报 anisette 相关错误 | v0.72 用 Local Anisette，需要装一个模仿 `sideloadly-daemon` 的本地组件，首次会要 Mac 管理员密码（弹窗可能在主窗口**后面**，用 Mission Control 找一下）。装失败过会导致 anisette 被自动禁用，去 Sideloadly 设置里点 **Recover** 重新启用 |
 | 解析/Xcode 那条路 | Xcode 14.2 的 DeviceSupport 最高 16.1，接 iOS 27 设备无法完成开发配对。**别在 Xcode 上耗时间**，Sideloadly 走 installation_proxy，不需要 DDI |
 | Sideloadly 里看不到设备 | 换根**能传数据**的线（很多充电线只有电没有数据）；换 USB 口直连、别用 hub；手机上重新点「信任」；Mac 上确认没有别的工具（如访达同步）占用设备 |
 | 提示 `Maximum App ID limit reached` | 免费账号每 7 天只能创建 10 个 App ID，等到下周或换一个 Apple ID |
@@ -141,6 +143,28 @@ App 沙盒里的数据全部保留——站点登录态、播放进度、离线�
 | 提示 `The identity used to sign the executable is no longer valid` | 证书真过期了。检查 Mac 和 iPhone 的日期时间是否都设为自动；然后重新 Start 覆盖安装 |
 | 自动续签一直没生效 | Mac 睡眠了 / 不在同一 Wi-Fi / Sideloadly 被退出了。三者缺一不可 |
 | 安装时报 `Unable to install`，日志里有 profile 相关错误 | 免费账号的 profile 只含签名时连着的那台设备的 UDID，换设备要重新签 |
+
+### 附：为什么要把 Apple 的 IP 钉死
+
+`gsa.apple.com` 不是直接 A 记录，而是 `gsa.idms-apple.com.akadns.net` 的 CNAME，Akamai 会在一组 Apple 地址之间轮询。这组里**混着已经下线的地址**：
+
+| 地址 | 实测 |
+|---|---|
+| `17.179.252.2` | ✓ 通（TLS 正常，`POST /grandslam/GsService2` 返回 401） |
+| `17.32.194.34` | ✓ 通 |
+| `17.253.144.10` | ✓ 通 |
+| `17.32.194.2` | ✗ **黑洞**，`nc` 直接 timeout |
+
+Sideloadly 一旦拿到坏地址，就停在 TCP 握手（`SYN_SENT`），界面永远 `Logging in ... 0%`。它没有超时提示，所以看起来像「输完密码没反应」。
+
+**解法**：`tools/apple-pin-proxy.py` 起一个本地 CONNECT 代理，Apple 系域名固定走实测可用的 IP，其它域名正常解析透传。Sideloadly 通过 `HTTPS_PROXY` 指过来即可 —— 它不再需要解析 `gsa.apple.com`，也就不会踩到坏地址。
+
+```bash
+bash tools/open-sideloadly.sh          # 默认走钉 IP 代理，窗口别关（代理在窗口里）
+bash tools/open-sideloadly.sh --direct # DNS 运气好时可用，不启代理
+```
+
+> 别从终端直接 `open -a /Applications/Sideloadly.app`：`open` 会把当前 shell 的 `HTTP_PROXY`/`HTTPS_PROXY` 一起传进去。如果你在别的项目终端里（比如带着沙箱代理的会话），那些变量会覆盖掉这里的设置。
 
 ## 六、这个包为什么适合侧载
 
