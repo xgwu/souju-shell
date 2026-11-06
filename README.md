@@ -4,6 +4,7 @@
 
 - `report-hctd4-ios-shell.html` —— 套壳可行性实测（结论：自用壳可行，上架无解）
 - `souju-light.html` —— 界面语言（海报优先 / 单一强调色 / 编辑感）
+- `souju-dark.html` —— 同一套界面语言的暗介质（墨玉画布 / 暖白 / 单一亮橙），是默认皮肤的依据
 
 **核心判断**：这个壳不是"从零造一个浏览器"，而是**照站点已有的 `nativeBridge` 协议复刻一个容器**。协议是从线上 bundle 里逆出来的（见下文对照表），不是猜的。
 
@@ -83,10 +84,10 @@ bash tools/make-ipa.sh       # 打包 → dist/SoujuShell.ipa（ad-hoc 签名，
 | 下拉刷新、右滑返回 | ✅ | `UIRefreshControl` / `allowsBackForwardNavigationGestures` |
 | **原生播放器接管**（`aimovie_native_v1`） | ❌ 有意不做 | 见第 5 节 |
 | 弹幕 / 一起看 | ❌ | 站点能力，壳不介入 |
-| **整站换肤**（搜剧 Light） | ✅ | `Bridge/SkinPreset.swift`，工具箱里一键切换 |
+| **整站换肤**（搜剧 Dark 默认 / Light） | ✅ | `Bridge/SkinPreset.swift`，工具箱 → 主题一键切换，偏好持久化 |
 | **首页「今晚首选」置顶卡** | ✅ 皮肤 JS 注入 | 取日历里今天更新、且不在追的那一部 |
 | **周表「只看未看过」筛选** | ✅ 皮肤 JS 注入 | 判定依据是站点自己的 `playback-resume` |
-| **短剧竖屏流纸白化** | ✅ 皮肤 CSS | `/short-drama` 与详情页、选集抽屉一并转纸白 |
+| **短剧竖屏流跟随介质** | ✅ 皮肤 CSS | `/short-drama` 与详情页、选集抽屉一并转墨玉（浅色下转纸白） |
 | **横屏 → 竖屏方向补正** | ✅ | `Core/RotationGuard.swift`，见下方说明 |
 
 > **2026-11-06 移除「播放页沉浸」**。原先壳会在播放页藏掉站点页头与侧栏、把视频居中到黑底，
@@ -187,6 +188,12 @@ bash tools/make-ipa.sh       # 打包 → dist/SoujuShell.ipa（ad-hoc 签名，
 | 皮肤无回归 | 注入移除沉浸后的 CSS/JS：`/`、`/updates`、`/player/...` 三页均 `movie-light` + body `rgb(250,250,248)`，无 JS 异常；「今晚首选」卡与「只看未看过」筛选仍在 |
 | 首页顶部浓缩（chips 单行） | 无头 Chromium 注入真实皮肤实测：提示条 164→40px、顶部 336→212px、「本周追剧」y=605→481；375/390/430 三宽度均为一行（可视 351/366/406，内容 778）；`scrollLeft` 可置 412 上限，滑动后行高不变 |
 | 浓缩后其余路由 | `/updates`、`/short-drama` 同皮肤实测无错位（选择器限定在 `.movie-home-prompt-groups`，非首页不命中） |
+| 默认深色启动 | 首次安装直接落 `data-skin="souju-dark"`；老安装里 `shell.skin` 为旧默认值 `souju-light`、且 `shell.skinExplicit` 为假 → 启动时自动改写为 `souju-dark`（`simctl` 读 plist 确认已落盘） |
+| 主题开关 | 工具箱顶部「主题」默认选中**深色**；点「浅色」即时切到纸白（`body` 回 `rgb(250,250,248)`、`data-skin="souju-light"`），杀进程重启后仍是浅色（`skinExplicit` 已置真，不再被迁移覆盖） |
+| 深色全路由无回归 | `/`、`/updates`、`/player/...`、`/short-drama` 四页截图逐一比对：画布 `#0E0E10`、卡片 `#191A1D` + 1px 描边、文字暖白；tab 选中态为暖白下划线而非橙；浅色版同四页无变化 |
+| 深色可读性补丁 | 品牌标在暗底由 `filter: none` 改为 `grayscale(1) brightness(1.32)`（原方案是一团深墨）；短剧页「片单」「热度」等浅底暖白字的按钮改墨磨砂后边界清晰 |
+| 状态栏随介质 | dark 皮肤 `lightContent`、light 皮肤 `darkContent`；短剧页两套都交回站点自己决定（不抢占） |
+| 「今晚首选」海报自愈 | 冷启动源图 `src` 为空导致海报永久空白（既有 bug）：改 `loading="eager"` + `referrerPolicy="no-referrer"` + `posterOf()` 四级回退 + 最多 4 次重试 + 内容未变但海报仍空则重建卡片，模拟器确认自愈 |
 | 方向守卫（`RotationGuard`） | **链路验证通过**：应用内先 `requestGeometryUpdate(.landscapeRight)` 把界面转 90°（证明 `simctl` 做不到的旋转可以被程序驱动），再恢复掩码造出"设备竖持、界面横屏"的卡死态，抛一次方向通知 → 0.45s 后判定卡住、1.35s 内界面回到竖屏、掩码已还原（`retry` 读到 `interface=1`）。注：模拟器 `UIDevice.orientation` 恒为 `unknown(0)`，验证时临时覆盖成 `portrait`，该覆盖已删除 |
 
 实际抓到的桥日志（`Documents/bridge.log` 原文节选）：
@@ -223,13 +230,23 @@ bash tools/make-ipa.sh       # 打包 → dist/SoujuShell.ipa（ad-hoc 签名，
 | 层 | 在哪 | 能改吗 | 怎么改 |
 |---|---|---|---|
 | **壳的原生 UI** | 工具箱、下载列表、启动页、进度线、橙色调 | ✅ 完全可控 | 改 `Core/Theme.swift` 和 `UI/*.swift`，重编译 |
-| **站点整站外观** | 首页、周表、片单、剧集页 | ✅ 一键切换 | 工具箱 → 外观 → 选「搜剧 Light」 |
+| **站点整站外观** | 首页、周表、片单、剧集页 | ✅ 一键切换 | 工具箱 → 主题 → 深色 / 浅色 |
 | **站点局部细节** | 任意元素 | ✅ 可注入覆盖 | 工具箱 → 外观 → 编辑样式与脚本 |
 
-### 内置皮肤：搜剧 Light
+### 内置皮肤：两套介质（Dark 默认 / Light）
 
-`souju-light.html` 那套语言（**纸白画布 + 墨黑 + 单一强调橙 + 海报优先**）已经做成内置皮肤，
-不是"给你一段 CSS 自己粘"——工具箱里点一下，`model.applyCustomInjection()` 重建注入并刷新，立刻生效。
+两套皮肤是**同一套结构的两种介质**，这一点是设计稿定下来的，不是实现上的偷懒：
+`被关掉的是灯，不是结构`。Light 版的六条约束——一屏一焦点、海报优先、单一强调色、
+留白建层级、海报承担全部色彩、3.2× 比例——在 Dark 里一条没动，换的只是承载它们的介质：
+
+| 维度 | dark（默认） | light | 为什么这么定 |
+|---|---|---|---|
+| 画布 | 墨玉 `#0E0E10` | 纸白 `#FAFAF8` | 纯黑 `#000` 会让海报黑边和背景融成一片，层级彻底消失 |
+| 卡片 | `#191A1D` + 1px `rgba(255,255,255,.07)` 描边 | `#FFFFFF` + 阴影 | 暗底上黑投影打在近黑面上等于没画，层级只能靠"卡片比画布亮" |
+| 文字 | 暖白 `#F2F1ED` | 墨黑 `#12100F` | 纯白在暗底有 halation，小字尤其糊 |
+| 强调 | 亮橙 `#FF6B42`，用途收紧 | 橙 `#FF5C35` | 同一块橙在暗底视觉重量约 1.6 倍，必须做减法：日期指示线改暖白、发送键不做实心橙 |
+| 海报 | `brightness(.88)`，按下复原 `1` | 原亮度 | 暗底会把海报衬得过曝，六张一起喊就没了焦点 |
+| 主按钮 | 暖白实心 + 墨字 | 墨黑实心 + 白字 | 暗底上"反白"才是行动色 |
 
 实现只有两个文件：
 
@@ -241,7 +258,8 @@ bash tools/make-ipa.sh       # 打包 → dist/SoujuShell.ipa（ad-hoc 签名，
 站点 DOM 用的是 `home-feed-card` / `watch-calendar-page-day` / `app-primary-bottom-nav` 这类**语义类名**，
 不是纯原子类，所以覆盖是按"组件"写的，不是按"第几个 div"写的——改版时失效范围可控。
 
-皮肤具体做了什么：
+皮肤具体做了什么（下表列 light 介质的落地值，也是结构基准；dark 只是把表面与文字换成另一套色阶，
+布局一列完全相同）：
 
 | 站点元素 | 原样 | 皮肤之后 |
 |---|---|---|
@@ -254,6 +272,40 @@ bash tools/make-ipa.sh       # 打包 → dist/SoujuShell.ipa（ad-hoc 签名，
 | 周表 `/updates` | 圆角色块日期 + 分段胶囊 | 同款下划线指示器，卡片降为白底细边 |
 | 底部导航 | 深色磨砂 + 青色选中环 | 纸白磨砂 + 墨色图标 + 选中橙色下划线 |
 | 广告位 | 内嵌推荐位 | 隐藏（`movie-player-info-ad-*` / `movie-content-grid-ad`） |
+
+#### dark 是 light 派生出来的，不是另写一份
+
+结构只有一份（light 的 CSS 已经把整站按 BEM 类名重排过），dark 在 `SkinPreset.swift` 里由它生成：
+
+```swift
+private static let soujuDarkCSS: String = {
+    let scoped = soujuLightCSS.replacingOccurrences(
+        of: #"data-skin="souju-light""#, with: #"data-skin="souju-dark""#)
+    return darken(scoped) + soujuDarkLayerCSS
+}()
+```
+
+- `darken` 是一张 12 条的**色值映射表**（`background: #FFFFFF → #191A1D`、`color: #FFFFFF → #0A0A0B`、
+  `rgba(250,250,248,α) → rgba(14,14,16,α)` …），只换表面与文字，不碰任何结构属性；
+  顺序有讲究：`background-color: #FFFFFF` 必须排在 `color: #FFFFFF` 前面，否则会被子串规则截胡。
+- `soujuDarkLayerCSS` 是手写的**介质层**（约 190 行）：令牌重映射、用描边重建层级、
+  收紧橙色预算（日期指示线改暖白）、海报压 12% 亮度、把 light 的白磨砂按钮翻成墨磨砂。
+- 好处：以后调布局只改 light，dark 自动跟上。代价：dark 独有的判断（"哪块橙该留"）
+  必须集中写在介质层里，不能散落回结构里。
+
+JS 同理只有一份模板 `skinJSTemplate`，三处占位 `__SKIN__` / `__THEME__` / `__DARK__`；
+结构逻辑（今晚首选、只看未看过、路由跟随、状态栏取向）不重复实现，
+所以深色和浅色的行为差异只有"切哪个 `data-theme`、挂不挂 `html.dark`"。
+
+#### 默认深色 + 一个开关 + 一次迁移
+
+- `ShellSettings` 默认 `souju-dark`；工具箱顶部「主题」是深/浅两枚按钮，
+  点一下写偏好 → `applyCustomInjection()` 重建注入 → reload，登录态和播放进度都在站点侧，不受影响。
+- 老安装里存的 `souju-light` 是**旧版本的默认值**，不是用户的选择：
+  启动时若 `shell.skin == souju-light` 且没有 `shell.skinExplicit` 标记，一次性迁到 `souju-dark`。
+  用户一旦在主题开关里点过，`skinExplicit` 置真，之后不再覆盖他的选择。
+- 深色皮肤把状态栏切成浅色图标（`lightContent`）；短剧页仍然交回站点——那一页顶部就是视频画面，
+  明暗不可控，深色图标和浅色图标都会有时候看不见。
 
 **首页顶部信息浓缩（2026-11-06）**：站点把搜索提示做成两段「分组标题 + chips」并允许折行——
 热门影片 7 个 chip 折成 3 行，推荐输入只有 1 个 chip 却独占 1 行；再加上搜索框的控制行
@@ -274,8 +326,9 @@ bash tools/make-ipa.sh       # 打包 → dist/SoujuShell.ipa（ad-hoc 签名，
 暗示可滑。分组标题收起是有意的——`热门影片`/`推荐输入` 在单行里更像噪音，chips 本身自解释。
 
 **短剧竖屏流也跟着变**（`/short-drama` 与 `/short-drama/<id>`）：早期版本把这两页排除在皮肤之外，
-理由是"全屏视频用深色更稳"。实际用下来，从纸白首页点进短剧后整页突然变黑，观感是断裂的。
-现在统一纸白，做法不是"把黑色改白"这么直白，因为站点在这三处是反着来的：
+理由是"全屏视频用深色更稳"。实际用下来，从浅色首页点进短剧后整页突然变黑，观感是断裂的。
+现在这两页跟着皮肤走——dark 介质下是墨玉底，切浅色则是纸白，不再和首页打架。
+做法不是"把黑色改白/改墨"这么直白，因为站点在这三处是反着来的：
 
 | 站点写死的地方 | 表现 | 皮肤怎么处理 |
 |---|---|---|
@@ -283,20 +336,29 @@ bash tools/make-ipa.sh       # 打包 → dist/SoujuShell.ipa（ad-hoc 签名，
 | `.short-drama-video-backdrop` + `-cover-layer` | 竖屏裁切后剩余的上下区域，用同一张图模糊放大再压黑 | 压黑改成**压纸**（`rgba(250,250,248,.58)`），模糊区与纸白画布接得上，不再是"雾霾灰" |
 | `.short-drama-control-drawer-layer` | 选集/评论/换源/倍速抽屉带 `data-short-drama-theme="fixed"` + `data-theme="movie-dark"`，**站点主动钉死深色** | 在这一层上重映射 `--movie-*` 令牌（特异性高于站点的 `[data-theme="movie-dark"]`），抽屉内部不用逐个选择器 |
 
+上表是 light 的解法；dark 介质层里同样的三处改成"压墨"——画布 `#0E0E10`、模糊区 `rgba(14,14,16,.72)`、
+令牌重映射到暖白文字，抽屉那一层因为本来就是深色，反而只需要把令牌对齐到新的墨阶。
+
 信息层（剧名 / 集数 / 热度 / 片单 / 查看更多）叠在视频画面底部，用一条 `to top` 的纸白渐隐
 （`#FAFAF8 → 透明`）当底，文字随之转墨色；否则白字压在任意画面上都没法保证对比度。
+dark 介质层把这层渐隐翻成墨色（`#0E0E10 → 透明`）、文字回暖白，逻辑对偶、代码不必重写。
 右侧操作列是五个**没有类名**的按钮（纯 Tailwind），只能用 `.short-drama-control-dock > button`
 按结构选；白磨砂底在亮画面里会"消失"，靠 `0 3px 16px rgba(18,16,15,.22)` 的阴影把边界兜住。
+暗底上这一招失效（黑投影打在视频上没感觉），所以 dark 层改用**墨磨砂 + 1px 白描边**——
+这也是整站"阴影换描边"那条原则唯一必须破例补描边的地方。
 
 **状态栏这一页反而交回站点**：短剧页顶部就是视频画面，明暗完全不可控（可能是一张亮到发白的海报），
-深色图标和浅色图标都会有时看不见。所以 JS 只在**非短剧页**切 `darkContent`，
-短剧页保持站点自己的 `lightContent`，让图标融进画面而不是和画面打架。
+深色图标和浅色图标都会有时看不见。所以 JS 只在**非短剧页**主动设置状态栏——
+dark 皮肤给 `lightContent`（暖白图标），light 皮肤给 `darkContent`（墨色图标）；
+短剧页两套都保持站点自己的 `lightContent`，让图标融进画面而不是和画面打架。
 
-其余纸白页面照旧主动 `statusBar.setStyle({style:"darkContent"})`，并在 1.2s / 2.6s 各补一枪——
+其余页面照旧主动 `statusBar.setStyle(...)`，并在 1.2s / 2.6s 各补一枪——
 站点渲染完会自己再调一次 `lightContent`，不补这一枪会被它盖掉。
 
-改皮肤：直接改 `SkinPreset.swift` 里 `soujuLightCSS` / `soujuLightJS` 两个原始字符串（`#"""…"""#`，
+改皮肤：直接改 `SkinPreset.swift` 里 `soujuLightCSS` 原始字符串（`#"""…"""#`，
 首尾都不缩进，否则 Swift 多行字符串会报 insufficient indentation），重编译即生效。
+**改 dark 不用碰新字符串**——布局类改动写在 light 里，dark 自动继承；
+只有"暗底特有的判断"（哪块橙该收、哪个投影要换描边）才加到 `soujuDarkLayerCSS` 末尾。
 
 ### 两处结构性改造（不只是换颜色）
 
@@ -403,14 +465,17 @@ script-src 'self' https:            → 没有 unsafe-inline / unsafe-eval
    好处是不用自己维护状态、换设备也一致；坏处是判定精度受站点限制。
 7. **「今晚首选」依赖首页日历结构**（`.home-watch-calendar-group` / `-item` / `-item-copy`）。
    站点改版这几个类名就失效，卡片会消失——不会报错，只是没了。
-8. **短剧页的白磨砂按钮是"借"对比度**。按钮落点取决于视频画面本身，遇到接近纯白的镜头时，
+8. **浅色的短剧页白磨砂按钮是"借"对比度**。按钮落点取决于视频画面本身，遇到接近纯白的镜头时，
    白底按钮只剩阴影描边可辨。要彻底解决得给按钮加一层墨色描边或改回半透明墨底，
-   但那会破坏整站纸白的统一感——目前选择保留统一感。
-9. **短剧页上下模糊区是压纸不是消除**。横屏内容在竖屏里够不满时，上下会露出同一张图的模糊放大版。
-    皮肤把它压到 58% 纸色，肉眼是"淡淡的水彩"，不是纯 `#FAFAF8`。
+   但那会破坏整站纸白的统一感——目前选择保留统一感。（深色皮肤已改用墨磨砂 + 白描边，没有这个问题。）
+9. **短剧页上下模糊区是压色不是消除**。横屏内容在竖屏里够不满时，上下会露出同一张图的模糊放大版。
+   皮肤把它压到 58% 纸色（深色皮肤压到 72% 墨色），肉眼是"淡淡的水彩"，不是纯粹的画布色。
 10. **方向补正只处理一个方向**。设备竖持、界面卡横屏会被补正；反过来（界面竖屏、设备横持）
     故意不管，因为那多半是用户开了竖屏锁定。另外它依赖 `UIDevice.current.orientation`——
     手机平放（`faceUp`/`faceDown`）时方向不可信，此时不做判定。
+11. **深色是派生的，所以"深色专属"必须有纪律**。任何只在暗底成立的微调都要写进 `soujuDarkLayerCSS`；
+    图省事塞回 `soujuLightCSS` 里，浅色会被一起改坏。反过来，布局改动只写 light 一份，
+    别在介质层里重复结构——否则以后调一次布局要改两处，派生策略就白费了。
 
 ---
 
@@ -429,6 +494,11 @@ script-src 'self' https:            → 没有 unsafe-inline / unsafe-eval
 - **远端调试**：手机连 Mac，Safari → 开发 → 你的 iPhone → 搜剧。能看到网页 console 与 DOM。
 - **改线路**：`Core/ShellConfig.swift` 的 `builtinDomains`，或运行时在工具箱里加。
 - **关掉下载能力**：工具箱 → 离线下载开关。关掉后站点自动隐藏下载入口，用于判断"某个问题是不是下载模块引起的"。
+- **模拟器里开工具箱**：模拟器没有摇一摇也没有双指下滑，DEBUG 版支持启动参数直开——
+  `xcrun simctl launch <device> com.wuxiaogang.soujushell -souju-toolbox 1`。
+- **绕过 UI 直接改皮肤**：`xcrun simctl spawn <device> defaults write com.wuxiaogang.soujushell 'shell\.skin' souju-dark`
+  （键名里的点要转义，否则 `plutil`/`defaults` 会当路径解析）。改完必须 `simctl terminate` 再
+  `simctl shutdown/boot`，否则进程带着旧偏好继续跑，会误判"改了没生效"。
 
 ---
 
@@ -454,7 +524,7 @@ tools/
 └─ setup-xcode.sh      用 xcodes 走命令行下载（Apple 已关这条通道，留作记录）
 
 docs/preview.html      界面预览（浏览器直接打开）
-docs/shots/            实跑截图（skin-*.png 为搜剧 Light 皮肤）
+docs/shots/            实跑截图（skin-dark-* 为深色介质，skin-home-compact-* 为首页浓缩）
 ```
 
 ---

@@ -1,20 +1,24 @@
 import Foundation
 
-/// 内置皮肤（把整站换成 souju-light 的设计语言）。
+/// 内置皮肤：同一套结构的两种介质。
+///
+///   - `souju-dark`（默认，依据资料库 souju-dark.html）：墨玉 #0E0E10 + 暖白 #F2F1ED + 亮橙 #FF6B42
+///   - `souju-light`（依据 souju-light.html）：纸白 #FAFAF8 + 墨黑 #12100F + 强调橙 #FF5C35
 ///
 /// 为什么皮肤放在源码里而不是资源文件：本工程只有一个 PBXResourcesBuildPhase 都没有的
 /// 纯代码 target，加资源要动 pbxproj 的构建阶段；字符串常量零构建风险，改样式改这个文件即可。
 ///
-/// 皮肤由两段组成：
-///   - CSS：把站点的设计令牌（--movie-bg / --movie-text / --movie-primary …）重映射成
-///     纸白 #FAFAF8 + 墨黑 #12100F + 单一强调橙 #FF5C35，再按 BEM 类名重排首页板块。
-///   - JS：切 `data-theme="movie-light"`、摘掉 `html.dark`、打「更新」角标，
-///     短剧竖屏流（`/short-drama`）也走纸白，只在视频画面底部铺一层纸白渐隐保证文字可读。
+/// 两套皮肤共用一份结构（light 的 CSS 已经把整站按 BEM 类名重排过），
+/// dark 由它派生：换作用域 → 过一张色值映射表 → 追加手写的「介质层」。
+///
+/// JS 也只有一份模板（`skinJSTemplate`），三处占位：切哪个 data-theme、挂不挂 html.dark、
+/// 状态栏用深图标还是浅图标。结构逻辑（今晚首选 / 只看未看过 / 路由跟随）不重复实现。
 ///
 /// 站点 DOM 用的是语义类名（home-feed-card / watch-calendar-page-day / app-primary-bottom-nav），
 /// 不是纯原子类，所以覆盖是「按组件」而不是「按位置」的，改版后失效范围可控。
 enum SkinPreset: String, CaseIterable, Identifiable {
     case none
+    case soujuDark = "souju-dark"
     case soujuLight = "souju-light"
 
     var id: String { rawValue }
@@ -22,6 +26,7 @@ enum SkinPreset: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .none: return "站点原样"
+        case .soujuDark: return "搜剧 Dark"
         case .soujuLight: return "搜剧 Light"
         }
     }
@@ -29,13 +34,18 @@ enum SkinPreset: String, CaseIterable, Identifiable {
     var subtitle: String {
         switch self {
         case .none: return "跟随站点自己的深色主题"
+        case .soujuDark: return "墨玉画布 · 暖白 · 单一亮橙"
         case .soujuLight: return "纸白画布 · 海报优先 · 单一强调橙"
         }
     }
 
+    /// 是否是「深色介质」的皮肤。工具箱的主题开关、状态栏取向都看这个。
+    var isDark: Bool { self == .soujuDark }
+
     var css: String {
         switch self {
         case .none: return ""
+        case .soujuDark: return SkinPreset.soujuDarkCSS
         case .soujuLight: return SkinPreset.soujuLightCSS
         }
     }
@@ -43,8 +53,21 @@ enum SkinPreset: String, CaseIterable, Identifiable {
     var js: String {
         switch self {
         case .none: return ""
-        case .soujuLight: return SkinPreset.soujuLightJS
+        case .soujuDark:
+            return SkinPreset.skinJS(skin: "souju-dark", theme: "movie-dark", dark: true)
+        case .soujuLight:
+            return SkinPreset.skinJS(skin: "souju-light", theme: "movie-light", dark: false)
         }
+    }
+
+    /// 两套皮肤共用同一段结构性 JS（今晚首选 / 只看未看过 / 主题纠偏 / 状态栏），
+    /// 只有「切哪个 data-theme、挂不挂 html.dark、状态栏用深图标还是浅图标」不同，
+    /// 所以做成模板 + 三个占位符，避免两份 12KB 脚本各自漂移。
+    private static func skinJS(skin: String, theme: String, dark: Bool) -> String {
+        skinJSTemplate
+            .replacingOccurrences(of: "__SKIN__", with: skin)
+            .replacingOccurrences(of: "__THEME__", with: theme)
+            .replacingOccurrences(of: "__DARK__", with: dark ? "true" : "false")
     }
 
     static func named(_ raw: String?) -> SkinPreset {
@@ -1116,13 +1139,500 @@ html[data-skin="souju-light"] .souju-unseen-empty {
 
 """#
 
-    private static let soujuLightJS = #"""
-(function () {
-  if (window.__soujuLightLoaded) { return; }
-  window.__soujuLightLoaded = true;
+    // MARK: - souju-dark
+    //
+    // 设计依据：资料库 souju-dark.html（v2）。那篇稿子一句话概括是
+    // **「把灯关掉，但不改结构」**：light 版的六条约束（一屏一焦点 / 海报优先 /
+    // 单一强调色 / 留白建层级 / 海报承担全部色彩 / 3.2× 比例）一条不动，换的只是介质：
+    //
+    //   · 画布用墨玉 #0E0E10，不用纯黑 —— #000 会让海报黑边和背景融成一片，层级消失
+    //   · 层级靠「比画布更亮的卡片 #191A1D + 1px 亮描边」—— 黑投影打在近黑底上等于没画
+    //   · 文字用暖白 #F2F1ED —— 纯白在暗底会 halation，小字尤其糊
+    //   · 橙色提亮到 #FF6B42，但预算收紧 —— 同一块橙在暗底的视觉重量约是浅底 1.6 倍
+    //   · 海报默认 brightness(.88)，按下复原 —— 暗底会把海报衬得过曝，六张一起喊就没焦点
+    //
+    // 实现上不复制 34KB 结构：结构只有一份（light 的 CSS，因为它已经把整站重排过），
+    // dark = 换作用域 + 一张色值映射表 + 一份手写的「介质层」。
+    // 以后改布局只改 light，dark 自动跟上；dark 独有的只有颜色、层级与橙色预算。
 
-  var SKIN = "souju-light";
-  // 短剧页已并入纸白皮肤，不再单独分支（保留正则以便按路由做例外）
+    private static let soujuDarkCSS: String = {
+        let scoped = soujuLightCSS.replacingOccurrences(
+            of: #"data-skin="souju-light""#,
+            with: #"data-skin="souju-dark""#
+        )
+        return darken(scoped) + soujuDarkLayerCSS
+    }()
+
+    /// light → dark 的色值映射。只换「表面」与「文字」，不碰任何结构属性。
+    /// 顺序有讲究：`background-color: #FFFFFF` 必须先于 `color: #FFFFFF`，
+    /// 否则前者会被后者的子串规则截胡。
+    private static func darken(_ css: String) -> String {
+        let map: [(String, String)] = [
+            ("background-color: #FFFFFF", "background-color: #191A1D"),
+            ("background: #FFFFFF", "background: #191A1D"),
+            ("color: #FFFFFF", "color: #0A0A0B"),
+            ("rgba(250, 250, 248,", "rgba(14, 14, 16,"),
+            ("rgba(18, 16, 15,", "rgba(0, 0, 0,"),
+            ("#F4F3EF", "#212226"),
+            ("#EFEDE7", "#1C1D21"),
+            ("#F5F4F0", "#212226"),
+            ("#F7F6F2", "#1A1B1F"),
+            ("#FBFAF7", "#141417"),
+            ("#FAFAF8", "#0E0E10"),
+            ("#FF7A57", "#FF8A63"),
+        ]
+        var out = css
+        for (from, to) in map {
+            out = out.replacingOccurrences(of: from, with: to)
+        }
+        return out
+    }
+
+    /// 介质层：令牌重映射 + 暗底特有的补偿（描边代替阴影、橙色预算、海报压亮度）。
+    private static let soujuDarkLayerCSS = #"""
+
+/* =========================================================
+   搜剧 Dark · 介质层  v1
+   接在 light 结构之后，负责三件 light 不需要的事：
+   ① 把纸白令牌换成墨玉/暖白；② 用描边重建层级；③ 收紧橙色预算
+   ========================================================= */
+
+html[data-skin="souju-dark"] {
+  --bg: #0E0E10;
+  --bg2: #141417;
+  --surf: #191A1D;
+  --surf2: #212226;
+  --txt: #F2F1ED;
+  --txt2: #9C9993;
+  --txt3: #7A7873;
+  --edge: rgba(255, 255, 255, 0.07);
+  --edge2: rgba(255, 255, 255, 0.15);
+  --on-light: #0A0A0B;
+
+  /* 沿用 light 层的变量名，值换介质 */
+  --paper: var(--bg);
+  --card: var(--surf);
+  --ink: var(--txt);
+  --ink-mid: var(--txt2);
+  --ink-faint: var(--txt3);
+  --line: var(--edge);
+  --hair: rgba(255, 255, 255, 0.05);
+  --accent: #FF6B42;
+
+  --movie-bg: var(--bg);
+  --movie-bg-elevated: var(--surf);
+  --movie-surface: var(--surf);
+  --movie-surface-strong: var(--surf2);
+  --movie-border: var(--edge);
+  --movie-border-soft: rgba(255, 255, 255, 0.05);
+  --movie-text: var(--txt);
+  --movie-text-muted: var(--txt2);
+  --movie-text-subtle: var(--txt3);
+  --movie-primary: var(--txt);
+  --movie-primary-strong: var(--accent);
+  --movie-primary-foreground: var(--on-light);
+  --movie-primary-muted: rgba(255, 255, 255, 0.08);
+  --movie-accent: var(--accent);
+  --movie-accent-muted: rgba(255, 107, 66, 0.14);
+  --movie-share-button-background: var(--txt);
+  --movie-player-danmaku-accent: var(--accent);
+  --movie-player-danmaku-accent-hover: #FF8A63;
+  --movie-player-danmaku-on-accent: var(--on-light);
+
+  --movie-legacy-bg-rgb: 14, 14, 16;
+  --movie-legacy-bg-elevated-rgb: 25, 26, 29;
+  --movie-legacy-surface-rgb: 25, 26, 29;
+  --movie-legacy-border-soft-rgb: 255, 255, 255;
+  --movie-legacy-primary-rgb: 242, 241, 237;
+  --movie-legacy-primary-strong-rgb: 255, 107, 66;
+  --movie-legacy-text-rgb: 242, 241, 237;
+  --movie-legacy-text-subtle-rgb: 156, 153, 147;
+  --movie-legacy-accent-rgb: 255, 107, 66;
+
+  color-scheme: dark;
+}
+
+/* ---------- 画布 ---------- */
+html[data-skin="souju-dark"] body,
+html[data-skin="souju-dark"] .min-h-dvh,
+html[data-skin="souju-dark"] .movie-app-bg {
+  background: var(--bg) !important;
+  color: var(--txt) !important;
+}
+/* 站点的氛围光带一点青，会把「墨玉 + 暖白 + 一个橙」稀释掉 */
+html[data-skin="souju-dark"] .movie-atmosphere,
+html[data-skin="souju-dark"] .movie-app-bg::before,
+html[data-skin="souju-dark"] .movie-app-bg::after {
+  display: none !important;
+}
+html[data-skin="souju-dark"] .movie-page-loading-progress-rail {
+  background: rgba(255, 255, 255, 0.08) !important;
+}
+html[data-skin="souju-dark"] .movie-page-loading-progress-value {
+  background: var(--txt) !important;
+}
+
+/* ---------- 顶栏 ---------- */
+html[data-skin="souju-dark"] .app-page-header-row {
+  background: rgba(14, 14, 16, 0.86) !important;
+  -webkit-backdrop-filter: saturate(160%) blur(18px);
+  backdrop-filter: saturate(160%) blur(18px);
+  border-bottom: 1px solid var(--edge) !important;
+}
+html[data-skin="souju-dark"] .app-header-control,
+html[data-skin="souju-dark"] .movie-button-secondary {
+  background: rgba(255, 255, 255, 0.06) !important;
+  border: 1px solid var(--edge) !important;
+  color: var(--txt) !important;
+  box-shadow: none !important;
+}
+html[data-skin="souju-dark"] .app-header-control-icon,
+html[data-skin="souju-dark"] .movie-button-secondary svg {
+  color: var(--txt) !important;
+}
+/* 主行动：暖白实心 + 墨色字（light 是墨黑实心 + 白字，暗底要反过来） */
+html[data-skin="souju-dark"] .movie-button-primary {
+  background: var(--txt) !important;
+  color: var(--on-light) !important;
+  border: 0 !important;
+  box-shadow: none !important;
+}
+html[data-skin="souju-dark"] .movie-button-primary svg {
+  color: var(--on-light) !important;
+}
+
+/* ---------- 首页 hero ---------- */
+html[data-skin="souju-dark"] .movie-home-page-shell .text-center h1 {
+  color: var(--txt) !important;
+}
+/* 品牌标自带一块青蓝，会把「墨玉 + 暖白 + 一个橙」稀释掉：去色后提亮，落在暖白段 */
+html[data-skin="souju-dark"] img.movie-brand-lockup {
+  filter: grayscale(1) brightness(1.32) !important;
+}
+
+/* ---------- 搜索框 ---------- */
+html[data-skin="souju-dark"] .movie-composer-root {
+  background: var(--surf) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  border-radius: 18px !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04) !important;
+}
+html[data-skin="souju-dark"] .movie-composer-text-input {
+  color: var(--txt) !important;
+  caret-color: var(--accent) !important;
+}
+html[data-skin="souju-dark"] .movie-composer-text-input::placeholder,
+html[data-skin="souju-dark"] .movie-composer-root ::placeholder {
+  color: var(--txt3) !important;
+}
+html[data-skin="souju-dark"] .movie-composer-mode-switch {
+  background: var(--surf2) !important;
+  border: 0 !important;
+}
+html[data-skin="souju-dark"] .movie-composer-mode-thumb {
+  background: rgba(255, 255, 255, 0.12) !important;
+  box-shadow: none !important;
+}
+html[data-skin="souju-dark"] .movie-composer-search-mode-option {
+  color: var(--txt2) !important;
+}
+html[data-skin="souju-dark"] .movie-composer-search-mode-option[aria-pressed="true"] {
+  color: var(--txt) !important;
+}
+html[data-skin="souju-dark"] .movie-composer-leading-icon {
+  background: rgba(255, 255, 255, 0.06) !important;
+  color: var(--txt) !important;
+  border: 0 !important;
+}
+html[data-skin="souju-dark"] .movie-composer-voice-toggle {
+  color: var(--txt2) !important;
+  background: transparent !important;
+}
+
+/* ---------- 提示 chip ---------- */
+html[data-skin="souju-dark"] .movie-chip {
+  background: var(--surf) !important;
+  border: 1px solid var(--edge) !important;
+  color: var(--txt2) !important;
+  box-shadow: none !important;
+}
+html[data-skin="souju-dark"] .movie-home-prompt-groups .movie-chip svg {
+  color: var(--txt3) !important;
+}
+
+/* ---------- 日期条：指示线用暖白，只有「今天」的数字留橙 ---------- */
+/* 那篇稿子把 light 版的「橙色指示线」列为砍掉的两处之一：同一块橙在暗底重 1.6 倍，
+   日期条这种每天常驻的元素必须让位给真正的主行动。 */
+html[data-skin="souju-dark"] .home-watch-calendar {
+  border-top: 1px solid var(--edge);
+}
+html[data-skin="souju-dark"] .home-watch-calendar-days {
+  border-bottom: 1px solid var(--edge) !important;
+}
+html[data-skin="souju-dark"] .home-watch-calendar-day[data-selected="true"] {
+  box-shadow: inset 0 -2px 0 var(--txt) !important;
+  color: var(--txt) !important;
+}
+html[data-skin="souju-dark"] .home-watch-calendar-day[data-selected="true"] strong {
+  color: var(--accent) !important;
+}
+html[data-skin="souju-dark"] .watch-calendar-page-day[data-selected="true"] {
+  box-shadow: inset 0 -2px 0 var(--txt) !important;
+}
+html[data-skin="souju-dark"] .watch-calendar-page-day[data-selected="true"] strong {
+  color: var(--accent) !important;
+}
+
+/* ---------- 海报与卡片：描边代替阴影，海报压 12% 亮度 ---------- */
+html[data-skin="souju-dark"] .home-feed-card,
+html[data-skin="souju-dark"] .home-feed-card-link,
+html[data-skin="souju-dark"] .souju-tonight-card {
+  background: transparent !important;
+  box-shadow: none !important;
+}
+html[data-skin="souju-dark"] .home-feed-card-image,
+html[data-skin="souju-dark"] .home-watch-calendar-poster,
+html[data-skin="souju-dark"] .home-watch-calendar-poster-image,
+html[data-skin="souju-dark"] .watch-calendar-page-poster,
+html[data-skin="souju-dark"] .souju-tonight-poster img {
+  filter: brightness(0.88) contrast(1.05);
+  transition: filter 0.18s ease-out;
+}
+html[data-skin="souju-dark"] .home-feed-card:active .home-feed-card-image,
+html[data-skin="souju-dark"] .souju-tonight-card:active .souju-tonight-poster img {
+  filter: brightness(1) contrast(1.02);
+}
+html[data-skin="souju-dark"] .home-feed-card-image,
+html[data-skin="souju-dark"] .souju-tonight-poster {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 11px;
+}
+/* 海报底部的压暗渐变要落在墨玉上，不能留纸白 */
+html[data-skin="souju-dark"] .home-feed-card-shade {
+  background: linear-gradient(to top, rgba(14, 14, 16, 0.92), rgba(14, 14, 16, 0.1) 42%, transparent 66%) !important;
+}
+/* 更新角标：全场允许的实心橙之一 */
+html[data-skin="souju-dark"] .home-feed-card-status.is-fresh {
+  background: var(--accent) !important;
+  color: var(--on-light) !important;
+}
+html[data-skin="souju-dark"] .home-feed-card-heat {
+  color: var(--txt3) !important;
+}
+html[data-skin="souju-dark"] .home-section-title,
+html[data-skin="souju-dark"] .home-feed-card-title {
+  color: var(--txt) !important;
+}
+html[data-skin="souju-dark"] .home-section-subtitle,
+html[data-skin="souju-dark"] .home-feed-card-meta {
+  color: var(--txt3) !important;
+}
+
+/* ---------- 底部导航 ---------- */
+html[data-skin="souju-dark"] .app-primary-bottom-nav {
+  background: rgba(14, 14, 16, 0.9) !important;
+  -webkit-backdrop-filter: saturate(160%) blur(18px);
+  backdrop-filter: saturate(160%) blur(18px);
+  border-top: 1px solid var(--edge) !important;
+  box-shadow: none !important;
+}
+html[data-skin="souju-dark"] .app-primary-bottom-link {
+  color: var(--txt3) !important;
+}
+html[data-skin="souju-dark"] .app-primary-bottom-link.is-active {
+  color: var(--txt) !important;
+}
+html[data-skin="souju-dark"] .app-primary-bottom-share-icon {
+  background: var(--txt) !important;
+  color: var(--on-light) !important;
+  box-shadow: none !important;
+}
+
+/* ---------- 侧边菜单 / 抽屉 ---------- */
+html[data-skin="souju-dark"] .movie-side-menu-panel {
+  background: var(--bg2) !important;
+  border-right: 1px solid var(--edge) !important;
+}
+html[data-skin="souju-dark"] .movie-menu-scrim {
+  background: rgba(0, 0, 0, 0.55) !important;
+}
+html[data-skin="souju-dark"] .movie-mobile-bottom-drawer-dialog {
+  background: var(--surf) !important;
+  border: 1px solid var(--edge) !important;
+}
+
+/* ---------- 今晚首选（壳插入的卡） ---------- */
+html[data-skin="souju-dark"] .souju-tonight-card {
+  border: 1px solid var(--edge) !important;
+  background: var(--surf) !important;
+}
+html[data-skin="souju-dark"] .souju-tonight-kicker {
+  color: var(--txt2) !important;
+}
+html[data-skin="souju-dark"] .souju-tonight-kicker::before {
+  background: var(--accent) !important;
+}
+html[data-skin="souju-dark"] .souju-tonight-title {
+  color: var(--txt) !important;
+}
+html[data-skin="souju-dark"] .souju-tonight-sub,
+html[data-skin="souju-dark"] .souju-tonight-meta {
+  color: var(--txt3) !important;
+}
+html[data-skin="souju-dark"] .souju-tonight-cta {
+  background: var(--txt) !important;
+  color: var(--on-light) !important;
+}
+
+/* ---------- 周表筛选（壳插入的 chip） ---------- */
+html[data-skin="souju-dark"] .souju-unseen-chip {
+  background: transparent;
+  border: 1px solid var(--edge);
+  color: var(--txt2);
+}
+html[data-skin="souju-dark"] .souju-unseen-chip[aria-pressed="true"] {
+  background: var(--txt);
+  border-color: var(--txt);
+  color: var(--on-light);
+}
+html[data-skin="souju-dark"] .souju-unseen-hint,
+html[data-skin="souju-dark"] .souju-unseen-empty {
+  color: var(--txt3);
+}
+
+/* ---------- 周表页 /updates ---------- */
+html[data-skin="souju-dark"] .watch-calendar-page-item {
+  background: var(--surf) !important;
+  border: 1px solid var(--edge) !important;
+  box-shadow: none !important;
+}
+html[data-skin="souju-dark"] .watch-calendar-kind-tabs > button[data-selected="true"] {
+  color: var(--txt) !important;
+  box-shadow: inset 0 -2px 0 var(--txt) !important;
+}
+
+/* ---------- 播放页 / 详情页 ---------- */
+html[data-skin="souju-dark"] .movie-episode-item {
+  background: var(--surf2) !important;
+  border: 1px solid var(--edge) !important;
+  color: var(--txt2) !important;
+}
+html[data-skin="souju-dark"] .movie-episode-item[aria-current="true"],
+html[data-skin="souju-dark"] .movie-episode-item[data-active="true"],
+html[data-skin="souju-dark"] .movie-episode-item.is-active {
+  background: rgba(255, 255, 255, 0.14) !important;
+  border-color: rgba(255, 255, 255, 0.22) !important;
+  color: var(--txt) !important;
+}
+html[data-skin="souju-dark"] .movie-level-card {
+  background: var(--surf) !important;
+  border: 1px solid var(--edge) !important;
+  box-shadow: none !important;
+}
+html[data-skin="souju-dark"] .movie-player-support-trigger,
+html[data-skin="souju-dark"] .movie-player-support-trigger-icon {
+  color: var(--on-light) !important;
+}
+
+/* ---------- 短剧竖屏流：暗底上是「压墨」而不是「压纸」 ---------- */
+html[data-skin="souju-dark"] .short-drama-video-cover-layer {
+  background: rgba(14, 14, 16, 0.62) !important;
+}
+html[data-skin="souju-dark"] .short-drama-overlay {
+  background: linear-gradient(to top, #0E0E10 0%, rgba(14, 14, 16, 0.97) 38%, rgba(14, 14, 16, 0.78) 66%, rgba(14, 14, 16, 0) 100%) !important;
+  color: var(--txt) !important;
+}
+html[data-skin="souju-dark"] .short-drama-copy h2 {
+  color: var(--txt) !important;
+}
+html[data-skin="souju-dark"] .short-drama-copy p {
+  color: var(--txt2) !important;
+}
+html[data-skin="souju-dark"] .short-drama-copy > span {
+  background: rgba(255, 255, 255, 0.08) !important;
+  color: var(--txt2) !important;
+}
+html[data-skin="souju-dark"] .short-drama-control-dock > button {
+  background: rgba(14, 14, 16, 0.5) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  box-shadow: none !important;
+}
+/* light 版这三处是「白磨砂」，暗底上原样保留会变成「浅底 + 暖白字」= 文字消失，
+   必须一起翻成「墨磨砂 + 暖白字」。 */
+html[data-skin="souju-dark"] .short-drama-actions .movie-button-secondary,
+html[data-skin="souju-dark"] .short-drama-favorite-button {
+  background: rgba(14, 14, 16, 0.62) !important;
+  border: 1px solid rgba(255, 255, 255, 0.16) !important;
+  color: var(--txt) !important;
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  backdrop-filter: blur(14px) saturate(140%);
+}
+html[data-skin="souju-dark"] .short-drama-more-link {
+  background: var(--txt) !important;
+  color: var(--on-light) !important;
+  border: 0 !important;
+  box-shadow: none !important;
+}
+html[data-skin="souju-dark"] .short-drama-video-status {
+  background: rgba(14, 14, 16, 0.62) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  color: var(--txt2) !important;
+}
+html[data-skin="souju-dark"] .short-drama-header .app-header-control,
+html[data-skin="souju-dark"] .short-drama-detail-header .app-header-control {
+  background: rgba(14, 14, 16, 0.55) !important;
+  border: 1px solid rgba(255, 255, 255, 0.14) !important;
+  box-shadow: none !important;
+}
+html[data-skin="souju-dark"] .short-drama-state-card {
+  background: var(--surf) !important;
+  border: 1px solid var(--edge) !important;
+}
+html[data-skin="souju-dark"] .short-drama-control-drawer-layer {
+  --movie-bg: var(--bg2);
+  --movie-bg-elevated: var(--surf);
+  --movie-surface: var(--surf);
+  --movie-surface-strong: var(--surf2);
+  --movie-border: var(--edge);
+  --movie-border-soft: rgba(255, 255, 255, 0.05);
+  --movie-text: var(--txt);
+  --movie-text-muted: var(--txt2);
+  --movie-text-subtle: var(--txt3);
+  --movie-primary: var(--txt);
+  --movie-primary-foreground: var(--on-light);
+  color-scheme: dark;
+}
+html[data-skin="souju-dark"] .short-drama-control-drawer-layer .movie-player-expanded-panel {
+  background: var(--surf) !important;
+  border: 1px solid var(--edge) !important;
+}
+html[data-skin="souju-dark"] .short-drama-control-drawer-layer .react-player-episode-option {
+  background: var(--surf2) !important;
+  border: 1px solid var(--edge) !important;
+  color: var(--txt2) !important;
+}
+html[data-skin="souju-dark"] .short-drama-control-drawer-layer .react-player-episode-option.is-active {
+  background: rgba(255, 255, 255, 0.14) !important;
+  border-color: rgba(255, 255, 255, 0.22) !important;
+  color: var(--txt) !important;
+}
+"""#
+
+    private static let skinJSTemplate = #"""
+(function () {
+  // 皮肤名 / 主题名 / 明暗标记由 Swift 侧填进来（见 skinJS(skin:theme:dark:)）。
+  // 两套皮肤共用这一段，结构逻辑（今晚首选、只看未看过、路由跟随）不重复实现。
+  var SKIN = "__SKIN__";
+  var THEME = "__THEME__";
+  var DARK = __DARK__;
+
+  // 换皮肤时页面会整体 reload，脚本重新执行；同一个皮肤内重复执行直接退出
+  if (window.__soujuSkinLoaded === SKIN) { return; }
+  window.__soujuSkinLoaded = SKIN;
+
+  // 短剧页已并入皮肤，不再单独分支（保留正则以便按路由做例外）
   var RE_SHORT = /^\/short-drama(\/|$)/;
   var RE_UPDATES = /^\/updates(\/|$)/;
   var RE_HOME = /^\/$/;
@@ -1256,6 +1766,19 @@ html[data-skin="souju-light"] .souju-unseen-empty {
   // 「今晚首选」不是"接着看"：站点首页本来就有「继续观看」，
   // 我们再放一张续播卡只会重复推荐同一部。这里做的是**发现**——
   // 从今天更新的日历里挑一部还没在追的，补上"今晚看什么"这个决策。
+  // 海报取址：站点的日历项是懒加载图，冷启动那一刻 src 可能还是空的，
+  // 依次退到 data-src / srcset —— 否则卡片会永久留一块空海报。
+  function posterOf(img) {
+    if (!img) { return ""; }
+    var src = img.currentSrc || img.getAttribute("src") || "";
+    if (!src) { src = img.getAttribute("data-src") || ""; }
+    if (!src) {
+      var set = img.getAttribute("srcset") || img.getAttribute("data-srcset") || "";
+      if (set) { src = set.split(",")[0].trim().split(" ")[0]; }
+    }
+    return src;
+  }
+
   function tonightData() {
     var groups = document.querySelectorAll(".home-watch-calendar-group");
     var firstAny = null;
@@ -1278,13 +1801,23 @@ html[data-skin="souju-light"] .souju-unseen-empty {
           kicker: "今晚首选",
           meta: kind ? kind + " · 今天更新" : "今天更新",
           sub: note && note.textContent ? note.textContent.trim() : "今日更新",
-          poster: img ? (img.currentSrc || img.src || "") : ""
+          poster: posterOf(img)
         };
         if (!firstAny) { firstAny = data; }
         if (!state.watching[variantIdOf(data.href)]) { return data; }
       }
     }
     return firstAny;
+  }
+
+  // 渲染时若还取不到海报，安排几次自重试：冷启动那一刻源图往往还没 src，
+  // 等它到了再重建这张卡，用户看到的就是"晚半秒出现"，而不是永久空白。
+  var posterRetry = 0;
+
+  function schedulePosterRetry() {
+    if (posterRetry >= 4) { return; }
+    posterRetry += 1;
+    setTimeout(function () { syncTonight(); }, posterRetry === 1 ? 500 : 1200);
   }
 
   function renderTonight(data) {
@@ -1306,9 +1839,15 @@ html[data-skin="souju-light"] .souju-unseen-empty {
       var img = document.createElement("img");
       img.src = data.poster;
       img.alt = "";
-      img.loading = "lazy";
+      // 不要 lazy：这张卡在首屏第一屏，而 WebKit 会按「插入那一刻的位置」判定是否延迟，
+      // 结果经常一直不加载 —— 表现就是卡片左边永远一块空海报。
+      img.loading = "eager";
       img.decoding = "async";
+      // 站点的海报走第三方图床，Referer 带了反而可能被拒；原图用的是 no-referrer
+      img.referrerPolicy = "no-referrer";
       poster.appendChild(img);
+    } else {
+      schedulePosterRetry();
     }
     card.appendChild(poster);
 
@@ -1339,6 +1878,14 @@ html[data-skin="souju-light"] .souju-unseen-empty {
     }
 
     if (existing && existing.getAttribute("data-souju-key") === data.key) {
+      // 海报迟到了：内容没变但卡里还是空海报，重建一次把图补上
+      var posterBox = existing.querySelector(".souju-tonight-poster");
+      if (data.poster && posterBox && !posterBox.firstChild) {
+        existing.remove();
+        posterRetry = 0;
+        anchor.parentElement.insertBefore(renderTonight(data), anchor);
+        return;
+      }
       // 内容没变，只要保证它还排在日历前面（React 重排过就挪回来）
       if (existing.nextElementSibling !== anchor) {
         anchor.parentElement.insertBefore(existing, anchor);
@@ -1450,9 +1997,14 @@ html[data-skin="souju-light"] .souju-unseen-empty {
 
   function applyTheme() {
     var h = document.documentElement;
-    if (h.getAttribute("data-theme") !== "movie-light") { h.setAttribute("data-theme", "movie-light"); }
+    if (h.getAttribute("data-theme") !== THEME) { h.setAttribute("data-theme", THEME); }
     if (h.getAttribute("data-skin") !== SKIN) { h.setAttribute("data-skin", SKIN); }
-    if (h.classList.contains("dark")) { h.classList.remove("dark"); }
+    // 深色皮肤要跟着站点的暗色约定挂 html.dark（它的 Tailwind dark: 变体看这个类）
+    if (DARK) {
+      if (!h.classList.contains("dark")) { h.classList.add("dark"); }
+    } else if (h.classList.contains("dark")) {
+      h.classList.remove("dark");
+    }
   }
 
   // 一次 sync 把所有区块对齐到当前路由与最新数据
@@ -1463,10 +2015,10 @@ html[data-skin="souju-light"] .souju-unseen-empty {
     syncUnseen();
     markFresh();
 
-    // 短剧页顶部就是视频画面，明暗不可控：状态栏交给站点（固定浅色图标），
-    // 其余页面是纸白底，必须切深色图标。
+    // 短剧页顶部就是视频画面，明暗不可控：状态栏交给站点（固定浅色图标，融进画面）；
+    // 其余页面深色皮肤用浅色图标，浅色皮肤用深色图标。
     if (!RE_SHORT.test(path())) {
-      setStatusBar("darkContent");
+      setStatusBar(DARK ? "lightContent" : "darkContent");
     }
   }
 
@@ -1500,7 +2052,7 @@ html[data-skin="souju-light"] .souju-unseen-empty {
   try {
     var observer = new MutationObserver(function () {
       var h = document.documentElement;
-      if (h.getAttribute("data-skin") !== SKIN || h.getAttribute("data-theme") !== "movie-light") {
+      if (h.getAttribute("data-skin") !== SKIN || h.getAttribute("data-theme") !== THEME) {
         applyTheme();
       }
       scheduleSync();

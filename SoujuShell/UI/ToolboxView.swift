@@ -17,6 +17,7 @@ struct ToolboxView: View {
         NavigationView {
             ScrollView {
                 VStack(spacing: 14) {
+                    themeSection
                     domainSection
                     pageSection
                     customSection
@@ -52,6 +53,47 @@ struct ToolboxView: View {
                 secondaryButton: .cancel(Text("取消"))
             )
         }
+    }
+
+    // MARK: - 主题
+
+    /// 两套皮肤是同一套结构的两种介质，切换只换介质不换结构，所以做成一个开关而不是一组设置：
+    /// 深色（墨玉 + 暖白 + 亮橙）是默认，浅色（纸白 + 墨黑 + 橙）给白天的户外用。
+    /// 写 `settings.skin` 后重建注入并 reload，登录态与播放进度都在站点侧，不受影响。
+    private var themeSection: some View {
+        Card(title: "主题", footnote: "切换会重载页面；登录与播放进度存在站点侧，不受影响") {
+            HStack(spacing: 8) {
+                themeOption(.soujuDark, icon: "moon.stars.fill", label: "深色")
+                themeOption(.soujuLight, icon: "sun.max.fill", label: "浅色")
+            }
+            .padding(.vertical, 10)
+        }
+    }
+
+    private func themeOption(_ skin: SkinPreset, icon: String, label: String) -> some View {
+        let selected = settings.activeSkin == skin
+        return Button {
+            guard settings.skin != skin.rawValue else { return }
+            settings.chooseSkin(skin)
+            model.applyCustomInjection()
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: icon)
+                    .font(.system(size: 13, weight: .semibold))
+                Text(label)
+                    .font(.system(size: 14, weight: .semibold))
+            }
+            .foregroundColor(selected ? Palette.canvas : Palette.ink)
+            .frame(maxWidth: .infinity)
+            .frame(height: 42)
+            .background(selected ? Palette.ink : Palette.canvas)
+            .overlay(
+                RoundedRectangle(cornerRadius: 11, style: .continuous)
+                    .stroke(selected ? Color.clear : Palette.hairline, lineWidth: 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+        }
+        .buttonStyle(PlainButtonStyle())
     }
 
     // MARK: - 线路
@@ -173,7 +215,7 @@ struct ToolboxView: View {
                 ForEach(SkinPreset.allCases) { skin in
                     Button(action: {
                         guard settings.skin != skin.rawValue else { return }
-                        settings.skin = skin.rawValue
+                        settings.chooseSkin(skin)
                         model.applyCustomInjection()
                     }) {
                         HStack(spacing: 10) {

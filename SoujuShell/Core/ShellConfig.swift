@@ -61,6 +61,7 @@ final class ShellSettings: ObservableObject {
         static let customJS = "shell.customJS"
         static let customInjectionEnabled = "shell.customInjectionEnabled"
         static let skin = "shell.skin"
+        static let skinExplicit = "shell.skinExplicit"
     }
 
     /// 自定义线路（为空则用内置列表）
@@ -107,15 +108,30 @@ final class ShellSettings: ObservableObject {
         didSet { defaults.set(customInjectionEnabled, forKey: Key.customInjectionEnabled) }
     }
 
-    /// 内置皮肤。`none` = 站点原样，`souju-light` = 全站换成纸白 + 海报优先。
+    /// 内置皮肤。默认 `souju-dark`（依据资料库 souju-dark.html 设计），
+    /// `souju-light` = 全站换成纸白 + 海报优先，`none` = 站点原样。
     /// 皮肤与自定义注入是叠加关系：皮肤先铺底，用户 CSS/JS 后盖上去。
     @Published var skin: String {
         didSet { defaults.set(skin, forKey: Key.skin) }
     }
 
+    /// 用户是否在工具箱里**主动**选过皮肤。
+    /// 老版本没记这个标记，而当时的默认值恰好是 `souju-light`；
+    /// 升级后要把这批「默认值」迁到新的默认深色，但用户亲手选的不能被覆盖。
+    @Published var skinExplicit: Bool {
+        didSet { defaults.set(skinExplicit, forKey: Key.skinExplicit) }
+    }
+
     /// 解析成枚举，未知值一律回落 `none`（比如将来删掉某个皮肤）
     var activeSkin: SkinPreset {
         SkinPreset.named(skin)
+    }
+
+    /// 用户在工具箱里选皮肤的唯一入口：写偏好 + 打「主动选过」标记。
+    func chooseSkin(_ preset: SkinPreset) {
+        guard skin != preset.rawValue else { return }
+        skinExplicit = true
+        skin = preset.rawValue
     }
 
     private init() {
@@ -126,7 +142,17 @@ final class ShellSettings: ObservableObject {
         customCSS = defaults.string(forKey: Key.customCSS) ?? ""
         customJS = defaults.string(forKey: Key.customJS) ?? ""
         customInjectionEnabled = defaults.object(forKey: Key.customInjectionEnabled) as? Bool ?? true
-        skin = defaults.string(forKey: Key.skin) ?? SkinPreset.none.rawValue
+
+        let storedSkin = defaults.string(forKey: Key.skin)
+        let storedExplicit = defaults.bool(forKey: Key.skinExplicit)
+        var resolvedSkin = storedSkin ?? SkinPreset.soujuDark.rawValue
+        if storedSkin == SkinPreset.soujuLight.rawValue && !storedExplicit {
+            // 旧版本的默认值，不是用户的选择 —— 迁到新的默认深色
+            resolvedSkin = SkinPreset.soujuDark.rawValue
+            defaults.set(resolvedSkin, forKey: Key.skin)
+        }
+        skin = resolvedSkin
+        skinExplicit = storedExplicit
     }
 
     /// 是否真的注入内容（开关开着且有内容）

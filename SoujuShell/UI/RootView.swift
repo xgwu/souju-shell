@@ -18,6 +18,7 @@ struct RootView: View {
             overlay
         }
         .preferredColorScheme(model.colorScheme)
+        .onAppear(perform: handleLaunchArguments)
         .sheet(isPresented: $model.showToolbox) {
             ToolboxView(model: model)
         }
@@ -32,6 +33,19 @@ struct RootView: View {
             model.showDownloads = true
             downloads.managerRequested = false
         }
+    }
+
+    // MARK: - 调试入口
+
+    /// 模拟器里没法摇一摇、也没法双指下滑，外观改动只能靠截图核对。
+    /// `xcrun simctl launch <dev> com.wuxiaogang.soujushell -souju-toolbox 1` 启动即开工具箱。
+    /// 只存在于 DEBUG 构建，App Store 包里没有这段。
+    private func handleLaunchArguments() {
+        #if DEBUG
+        if UserDefaults.standard.bool(forKey: "souju-toolbox") {
+            model.showToolbox = true
+        }
+        #endif
     }
 
     // MARK: - 顶部进度线
