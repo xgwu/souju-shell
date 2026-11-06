@@ -185,6 +185,8 @@ bash tools/make-ipa.sh       # 打包 → dist/SoujuShell.ipa（ad-hoc 签名，
 | 周表筛选 | 8 部中识别出 1 部已看；点开后剩 7 部可见，`souju:unseen-only=1` 已持久化 |
 | 播放页（移除沉浸后） | 模拟器截图：站点页头（返回/剧名/菜单）正常、视频回到 y=68 的 16:9 位置、弹幕正常、无胶囊残留 |
 | 皮肤无回归 | 注入移除沉浸后的 CSS/JS：`/`、`/updates`、`/player/...` 三页均 `movie-light` + body `rgb(250,250,248)`，无 JS 异常；「今晚首选」卡与「只看未看过」筛选仍在 |
+| 首页顶部浓缩（chips 单行） | 无头 Chromium 注入真实皮肤实测：提示条 164→40px、顶部 336→212px、「本周追剧」y=605→481；375/390/430 三宽度均为一行（可视 351/366/406，内容 778）；`scrollLeft` 可置 412 上限，滑动后行高不变 |
+| 浓缩后其余路由 | `/updates`、`/short-drama` 同皮肤实测无错位（选择器限定在 `.movie-home-prompt-groups`，非首页不命中） |
 | 方向守卫（`RotationGuard`） | **链路验证通过**：应用内先 `requestGeometryUpdate(.landscapeRight)` 把界面转 90°（证明 `simctl` 做不到的旋转可以被程序驱动），再恢复掩码造出"设备竖持、界面横屏"的卡死态，抛一次方向通知 → 0.45s 后判定卡住、1.35s 内界面回到竖屏、掩码已还原（`retry` 读到 `interface=1`）。注：模拟器 `UIDevice.orientation` 恒为 `unknown(0)`，验证时临时覆盖成 `portrait`，该覆盖已删除 |
 
 实际抓到的桥日志（`Documents/bridge.log` 原文节选）：
@@ -248,9 +250,28 @@ bash tools/make-ipa.sh       # 打包 → dist/SoujuShell.ipa（ad-hoc 签名，
 | 首页日期条 | 整块色卡 + 青色描边 | 无底色，选中是 2px 橙色下划线 |
 | 首页剧集卡 | 横向滑动、图上压字 | 三列海报流，海报 2:3，标题/年份落在海报下方 |
 | 「大家都在看」 | 148px 横滑卡片 | 三列网格 + 极轻角标（`更新` 才给橙色） |
+| 首页顶部提示（热门影片 / 推荐输入） | 两段「标题 + chips」折行，共 4 行 / 336px | 合并为一行横滑，2 行 / 212px（首屏多露出 124px） |
 | 周表 `/updates` | 圆角色块日期 + 分段胶囊 | 同款下划线指示器，卡片降为白底细边 |
 | 底部导航 | 深色磨砂 + 青色选中环 | 纸白磨砂 + 墨色图标 + 选中橙色下划线 |
 | 广告位 | 内嵌推荐位 | 隐藏（`movie-player-info-ad-*` / `movie-content-grid-ad`） |
+
+**首页顶部信息浓缩（2026-11-06）**：站点把搜索提示做成两段「分组标题 + chips」并允许折行——
+热门影片 7 个 chip 折成 3 行，推荐输入只有 1 个 chip 却独占 1 行；再加上搜索框的控制行
+（`+` / 快速·智能 / 语音 / 发送），顶部一共吃掉 4 行 336px，等于首屏 40%。
+
+压成一行的关键不是 `nowrap`（那只会把内容挤出屏幕），而是用 `display: contents` 把
+两个 `[data-home-suggestion-group]` 盒子从布局里摘掉，让它们的子项（标题 + chip）直接成为
+外层 `.movie-home-prompt-groups` 这个横向滚动容器的 flex item：
+
+```css
+.movie-home-prompt-groups { display:flex; flex-wrap:nowrap; overflow-x:auto; gap:8px; }
+[data-home-suggestion-group] { display: contents !important; }   /* 盒子消失，子项上浮 */
+[data-home-suggestion-group] > span { display: none !important; } /* 分组标题在单行里打断节奏 */
+```
+
+实测（iPhone 14 / 390×844）：提示条 164px → 40px（34px chip + 6px 留白），顶部 336px → 212px，
+「本周追剧」从 y=605 提到 481。8 个 chip 一个不少：内容宽 778px、可视 366px，右缘自然裁掉半个 chip
+暗示可滑。分组标题收起是有意的——`热门影片`/`推荐输入` 在单行里更像噪音，chips 本身自解释。
 
 **短剧竖屏流也跟着变**（`/short-drama` 与 `/short-drama/<id>`）：早期版本把这两页排除在皮肤之外，
 理由是"全屏视频用深色更稳"。实际用下来，从纸白首页点进短剧后整页突然变黑，观感是断裂的。

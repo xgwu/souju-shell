@@ -225,6 +225,42 @@ html[data-skin="souju-light"] .movie-home-prompt-groups .movie-chip svg {
   color: var(--ink-faint) !important;
 }
 
+/* ---------- 提示 chip：热门影片 + 推荐输入合并为一行横滑 ---------- */
+/* 站点把提示做成「分组标题 + chips」两段折行：热门影片 7 个 chip 折 3 行，推荐输入只有
+   1 个 chip 却独占 1 行，加搜索框控制行一共吃掉 4 行、336px（iPhone 14）。
+   这里把两个分组盒子摘掉（display:contents），让标签与 chip 一起成为同一个横向滚动
+   容器的子项：164px → 36px，首屏多露出 128px，8 个 chip 全部保留、滑动可达。 */
+html[data-skin="souju-light"] .movie-home-prompt-groups {
+  display: flex !important;
+  flex-wrap: nowrap !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+  gap: 8px !important;
+  padding: 0 0 6px !important;
+  overflow-x: auto !important;
+  overflow-y: hidden !important;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+  touch-action: pan-x;
+}
+html[data-skin="souju-light"] .movie-home-prompt-groups::-webkit-scrollbar {
+  display: none;
+}
+html[data-skin="souju-light"] .movie-home-prompt-groups [data-home-suggestion-group] {
+  display: contents !important;
+}
+/* 分组标题（热门影片 / 推荐输入）在单行里会打断 chip 的节奏，收起 */
+html[data-skin="souju-light"] .movie-home-prompt-groups [data-home-suggestion-group] > span {
+  display: none !important;
+}
+html[data-skin="souju-light"] .movie-home-prompt-groups .movie-chip {
+  flex: 0 0 auto !important;
+}
+html[data-skin="souju-light"] .movie-home-prompt-groups .movie-chip > span {
+  white-space: nowrap !important;
+}
+
 /* ---------- 日历：数字条降级为下划线指示 ---------- */
 html[data-skin="souju-light"] .home-watch-calendar {
   border-top: 1px solid var(--line);
