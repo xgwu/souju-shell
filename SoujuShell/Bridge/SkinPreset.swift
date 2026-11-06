@@ -1003,111 +1003,157 @@ html[data-skin="souju-light"] .movie-button-secondary {
 }
 
 /* =========================================================
-   ① 今晚首选（首页置顶）
+   ① 今晚首选（首页置顶）—— 沉浸式封面卡
    ——数据只读站点自己的 playback-resume，不自己记"已看"
+   ——形态：图铺满整卡，字压在图底，两个动作直接外露。
+      站点只给竖版海报（270×405），所以用 cover 裁成横构图：
+      object-position 抬到 28% 保住人脸，顶部与底部各压一层墨渐变兜对比度。
+      卡内文字一律 #FFF / rgba(255,255,255) 而不是 #FFFFFF ——
+      dark 皮肤是 light 派生出来的，darken() 会把 color:#FFFFFF 反成墨色。
    ========================================================= */
 html[data-skin="souju-light"] .souju-tonight {
-  margin: 4px 12px 14px;
-}
-html[data-skin="souju-light"] .souju-tonight-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 2px 2px 9px;
-}
-html[data-skin="souju-light"] .souju-tonight-kicker {
-  position: relative;
-  padding-left: 14px;
-  font-size: 11px;
-  font-weight: 650;
-  letter-spacing: 0.1em;
-  color: var(--ink);
-}
-html[data-skin="souju-light"] .souju-tonight-kicker::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 50%;
-  width: 6px;
-  height: 6px;
-  margin-top: -3px;
-  border-radius: 1.5px;
-  background: var(--accent);
-}
-html[data-skin="souju-light"] .souju-tonight-meta {
-  font-size: 11px;
-  color: var(--ink-faint);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-html[data-skin="souju-light"] .souju-tonight-card {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px;
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  background: var(--card);
-  box-shadow: 0 1px 2px rgba(18, 16, 15, 0.04);
-  text-decoration: none !important;
-  color: var(--ink) !important;
+  margin: 2px 12px 16px;
 }
 html[data-skin="souju-light"] .souju-unseen-chip,
 html[data-skin="souju-light"] .souju-tonight-card {
   -webkit-tap-highlight-color: transparent;
 }
-html[data-skin="souju-light"] .souju-tonight-card:active {
-  background: #FBFAF7;
-}
-html[data-skin="souju-light"] .souju-tonight-poster {
-  flex: 0 0 76px;
-  width: 76px;
-  height: 106px;
-  border-radius: 8px;
+html[data-skin="souju-light"] .souju-tonight-card {
+  position: relative;
+  display: block;
+  aspect-ratio: 1.42;
+  min-height: 226px;
+  max-height: 276px;
+  border-radius: 18px;
   overflow: hidden;
-  background: #EFEDE7;
+  background: #17120F;
+  box-shadow: 0 8px 24px rgba(18, 16, 15, 0.18);
+  text-decoration: none !important;
+  color: #FFF !important;
+  animation: souju-tonight-in 0.34s cubic-bezier(0.2, 0.9, 0.3, 1);
 }
-html[data-skin="souju-light"] .souju-tonight-poster img {
+@keyframes souju-tonight-in {
+  from { opacity: 0; transform: translateY(7px); }
+  to { opacity: 1; transform: none; }
+}
+html[data-skin="souju-light"] .souju-tonight-media {
+  position: absolute;
+  inset: 0;
+  display: block;
+}
+html[data-skin="souju-light"] .souju-tonight-media img {
   display: block;
   width: 100%;
   height: 100%;
   object-fit: cover;
+  /* 竖版海报裁成横构图，窗口位置是唯一要调的参数。
+     实测 38% 太靠上：大字型海报（走马上任）只露出半个人头；
+     54% 太靠下：特写型海报的脸被顶到边缘。46% 两头都能兜住。 */
+  object-position: center 46%;
+  transform: scale(1.04);
+  transform-origin: center 42%;
+  transition: transform 0.28s ease-out;
 }
-html[data-skin="souju-light"] .souju-tonight-copy {
-  flex: 1 1 auto;
-  min-width: 0;
+html[data-skin="souju-light"] .souju-tonight-scrim {
+  position: absolute;
+  inset: 0;
+  display: block;
+  background:
+    linear-gradient(to top, rgba(11, 9, 8, 0.96) 0%, rgba(11, 9, 8, 0.88) 22%, rgba(11, 9, 8, 0.46) 48%, rgba(11, 9, 8, 0.07) 70%, rgba(11, 9, 8, 0) 84%),
+    linear-gradient(to bottom, rgba(11, 9, 8, 0.7) 0%, rgba(11, 9, 8, 0.26) 20%, rgba(11, 9, 8, 0) 40%);
+}
+html[data-skin="souju-light"] .souju-tonight-badge {
+  position: absolute;
+  left: 14px;
+  top: 14px;
+  padding: 5px 10px 6px;
+  border-radius: 8px;
+  background: #FF6B42;
+  color: #FFF;
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  line-height: 1;
+  box-shadow: 0 2px 10px rgba(255, 107, 66, 0.4);
+}
+html[data-skin="souju-light"] .souju-tonight-body {
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  bottom: 14px;
   display: flex;
   flex-direction: column;
-  justify-content: center;
-  gap: 7px;
+  align-items: flex-start;
+  gap: 5px;
 }
 html[data-skin="souju-light"] .souju-tonight-title {
-  font-size: 17px;
-  font-weight: 650;
-  letter-spacing: -0.01em;
-  color: var(--ink);
+  max-width: 100%;
+  font-size: 25px;
+  font-weight: 700;
+  line-height: 1.18;
+  letter-spacing: -0.02em;
+  color: #FFF;
+  text-shadow: 0 1px 14px rgba(0, 0, 0, 0.5);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 html[data-skin="souju-light"] .souju-tonight-sub {
-  font-size: 12px;
-  color: var(--ink-mid);
+  max-width: 100%;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  color: rgba(255, 255, 255, 0.76);
+  text-shadow: 0 1px 10px rgba(0, 0, 0, 0.45);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-html[data-skin="souju-light"] .souju-tonight-cta {
-  flex: 0 0 auto;
-  align-self: center;
-  padding: 7px 13px;
-  border-radius: 999px;
-  background: var(--ink);
-  color: #FFFFFF;
-  font-size: 12.5px;
-  font-weight: 600;
+html[data-skin="souju-light"] .souju-tonight-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 9px;
+}
+html[data-skin="souju-light"] .souju-tonight-play,
+html[data-skin="souju-light"] .souju-tonight-shuffle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  height: 40px;
+  padding: 0 16px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 1;
+  white-space: nowrap;
+}
+html[data-skin="souju-light"] .souju-tonight-play {
+  background: #F2F1ED;
+  color: #17120F !important;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.26);
+}
+html[data-skin="souju-light"] .souju-tonight-play::before {
+  content: "";
+  width: 0;
+  height: 0;
+  border-left: 7px solid currentColor;
+  border-top: 4.5px solid transparent;
+  border-bottom: 4.5px solid transparent;
+}
+html[data-skin="souju-light"] .souju-tonight-shuffle {
+  background: rgba(11, 9, 8, 0.42);
+  border: 1px solid rgba(255, 255, 255, 0.32);
+  color: #FFF !important;
+  -webkit-backdrop-filter: blur(12px) saturate(140%);
+  backdrop-filter: blur(12px) saturate(140%);
+}
+html[data-skin="souju-light"] .souju-tonight-card:active {
+  box-shadow: 0 3px 12px rgba(18, 16, 15, 0.22);
+}
+html[data-skin="souju-light"] .souju-tonight-card:active .souju-tonight-media img {
+  transform: scale(1.07);
 }
 
 /* =========================================================
@@ -1403,26 +1449,24 @@ html[data-skin="souju-dark"] .watch-calendar-page-day[data-selected="true"] stro
 }
 
 /* ---------- 海报与卡片：描边代替阴影，海报压 12% 亮度 ---------- */
+/* 今晚首选卡不在这一组里：它是「图铺满」的图卡，不是浅色卡片，
+   底色要留着当海报未加载时的兜底，不能被 transparent 抹掉。 */
 html[data-skin="souju-dark"] .home-feed-card,
-html[data-skin="souju-dark"] .home-feed-card-link,
-html[data-skin="souju-dark"] .souju-tonight-card {
+html[data-skin="souju-dark"] .home-feed-card-link {
   background: transparent !important;
   box-shadow: none !important;
 }
 html[data-skin="souju-dark"] .home-feed-card-image,
 html[data-skin="souju-dark"] .home-watch-calendar-poster,
 html[data-skin="souju-dark"] .home-watch-calendar-poster-image,
-html[data-skin="souju-dark"] .watch-calendar-page-poster,
-html[data-skin="souju-dark"] .souju-tonight-poster img {
+html[data-skin="souju-dark"] .watch-calendar-page-poster {
   filter: brightness(0.88) contrast(1.05);
   transition: filter 0.18s ease-out;
 }
-html[data-skin="souju-dark"] .home-feed-card:active .home-feed-card-image,
-html[data-skin="souju-dark"] .souju-tonight-card:active .souju-tonight-poster img {
+html[data-skin="souju-dark"] .home-feed-card:active .home-feed-card-image {
   filter: brightness(1) contrast(1.02);
 }
-html[data-skin="souju-dark"] .home-feed-card-image,
-html[data-skin="souju-dark"] .souju-tonight-poster {
+html[data-skin="souju-dark"] .home-feed-card-image {
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 11px;
 }
@@ -1481,26 +1525,14 @@ html[data-skin="souju-dark"] .movie-mobile-bottom-drawer-dialog {
 }
 
 /* ---------- 今晚首选（壳插入的卡） ---------- */
+/* 这张卡两套介质下都是「暗图 + 暖白字」，内部色值不用换；
+   暗底上黑投影等于没画，改描边兜边界。 */
 html[data-skin="souju-dark"] .souju-tonight-card {
-  border: 1px solid var(--edge) !important;
-  background: var(--surf) !important;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  box-shadow: none;
 }
-html[data-skin="souju-dark"] .souju-tonight-kicker {
-  color: var(--txt2) !important;
-}
-html[data-skin="souju-dark"] .souju-tonight-kicker::before {
-  background: var(--accent) !important;
-}
-html[data-skin="souju-dark"] .souju-tonight-title {
-  color: var(--txt) !important;
-}
-html[data-skin="souju-dark"] .souju-tonight-sub,
-html[data-skin="souju-dark"] .souju-tonight-meta {
-  color: var(--txt3) !important;
-}
-html[data-skin="souju-dark"] .souju-tonight-cta {
-  background: var(--txt) !important;
-  color: var(--on-light) !important;
+html[data-skin="souju-dark"] .souju-tonight-card:active {
+  border-color: rgba(255, 255, 255, 0.16);
 }
 
 /* ---------- 周表筛选（壳插入的 chip） ---------- */
@@ -1799,35 +1831,72 @@ html[data-skin="souju-dark"] .short-drama-control-drawer-layer .react-player-epi
     return src;
   }
 
-  function tonightData() {
+  // 「换一部」点过的剧记在这里，只在本次会话有效 ——
+  // 它表达的是"我现在不想看这部"，不该跨启动影响推荐。
+  var tonightSkip = [];
+
+  function tonightCandidates() {
     var groups = document.querySelectorAll(".home-watch-calendar-group");
-    var firstAny = null;
+    var out = [];
 
     for (var g = 0; g < groups.length; g++) {
       var head = groups[g].querySelector(".home-watch-calendar-group-header h3");
-      var kind = head ? (head.textContent || "").trim() : "";
+      // h3 里有时带数量（"电视剧 100 部"），副标题里不要这个数字
+      var kind = head ? (head.textContent || "").replace(/\s*\d+\s*部\s*$/, "").trim() : "";
 
       var items = groups[g].querySelectorAll(".home-watch-calendar-item");
       for (var i = 0; i < items.length; i++) {
         var link = items[i].closest("a");
         var title = items[i].querySelector("h4");
         if (!link || !title) { continue; }
-        var img = items[i].querySelector("img");
         var note = items[i].querySelector("p");
-        var data = {
+        var noteText = note && note.textContent ? note.textContent.trim() : "";
+
+        // 副标题拼成「电视剧 · 更新至第13集」。
+        // 站点拿不到单集时长与细分类型（"古装轻喜"那类），只有大类 + 更新进度，
+        // 所以不上第二行，宁可少一条信息也不编。
+        var sub = [];
+        if (kind) { sub.push(kind); }
+        if (noteText) { sub.push(noteText); }
+
+        out.push({
           key: "cal:" + (link.getAttribute("href") || ""),
           href: link.getAttribute("href") || "",
           title: (title.textContent || "").trim(),
           kicker: "今晚首选",
-          meta: kind ? kind + " · 今天更新" : "今天更新",
-          sub: note && note.textContent ? note.textContent.trim() : "今日更新",
-          poster: posterOf(img)
-        };
-        if (!firstAny) { firstAny = data; }
-        if (!state.watching[variantIdOf(data.href)]) { return data; }
+          sub: sub.join(" \u00b7 ") || "今天更新",
+          poster: posterOf(items[i].querySelector("img"))
+        });
       }
     }
-    return firstAny;
+    return out;
+  }
+
+  function tonightData() {
+    var list = tonightCandidates();
+    if (!list.length) { return null; }
+
+    // 第一优先：今天更新、且还没在追的（真正意义上的"发现"）
+    for (var i = 0; i < list.length; i++) {
+      if (tonightSkip.indexOf(list[i].key) >= 0) { continue; }
+      if (!state.watching[variantIdOf(list[i].href)]) { return list[i]; }
+    }
+    // 全都在追：退一步，只排除点过「换一部」的
+    for (var j = 0; j < list.length; j++) {
+      if (tonightSkip.indexOf(list[j].key) < 0) { return list[j]; }
+    }
+    // 全被换过一遍：清空重来，卡片不能凭空消失
+    tonightSkip = [];
+    return list[0];
+  }
+
+  // 「换一部」：把当前这部记进跳过表，重建卡片（动画会重播一次）
+  function nextTonight(key) {
+    if (key) { tonightSkip.push(key); }
+    var existing = document.querySelector("[data-souju-tonight]");
+    if (existing) { existing.remove(); }
+    posterRetry = 0;
+    syncTonight();
   }
 
   // 渲染时若还取不到海报，安排几次自重试：冷启动那一刻源图往往还没 src，
@@ -1845,40 +1914,55 @@ html[data-skin="souju-dark"] .short-drama-control-drawer-layer .react-player-epi
     wrap.setAttribute("data-souju-tonight", "1");
     wrap.setAttribute("data-souju-key", data.key);
 
-    var head = el("div", "souju-tonight-head");
-    head.appendChild(el("span", "souju-tonight-kicker", data.kicker));
-    if (data.meta) { head.appendChild(el("span", "souju-tonight-meta", data.meta)); }
-    wrap.appendChild(head);
-
     var card = el("a", "souju-tonight-card");
     card.setAttribute("href", data.href);
     card.setAttribute("data-discover", "true");
 
-    var poster = el("span", "souju-tonight-poster");
+    // 图铺满整卡，scrim 是两层渐变：底部浓（压住标题/按钮），顶部淡（压住徽标）
+    var media = el("span", "souju-tonight-media");
     if (data.poster) {
       var img = document.createElement("img");
       img.src = data.poster;
       img.alt = "";
       // 不要 lazy：这张卡在首屏第一屏，而 WebKit 会按「插入那一刻的位置」判定是否延迟，
-      // 结果经常一直不加载 —— 表现就是卡片左边永远一块空海报。
+      // 结果经常一直不加载 —— 表现就是卡片整块空着。
       img.loading = "eager";
       img.decoding = "async";
       // 站点的海报走第三方图床，Referer 带了反而可能被拒；原图用的是 no-referrer
       img.referrerPolicy = "no-referrer";
-      poster.appendChild(img);
+      media.appendChild(img);
     } else {
       schedulePosterRetry();
     }
-    card.appendChild(poster);
+    media.appendChild(el("span", "souju-tonight-scrim"));
+    card.appendChild(media);
 
-    var copy = el("span", "souju-tonight-copy");
-    copy.appendChild(el("span", "souju-tonight-title", data.title));
-    copy.appendChild(el("span", "souju-tonight-sub", data.sub));
+    card.appendChild(el("span", "souju-tonight-badge", data.kicker));
 
-    card.appendChild(copy);
+    var body = el("span", "souju-tonight-body");
+    body.appendChild(el("span", "souju-tonight-title", data.title));
+    body.appendChild(el("span", "souju-tonight-sub", data.sub));
 
-    var cta = el("span", "souju-tonight-cta", "去看看");
-    card.appendChild(cta);
+    var actions = el("span", "souju-tonight-actions");
+
+    // 主按钮是视觉上的按钮，整卡本身已经是 <a>，所以它只是个"贴纸"——
+    // 点它等于点卡片，href 交给外层，不嵌套第二个链接。
+    actions.appendChild(el("span", "souju-tonight-play", "从第 1 集看"));
+
+    // 次按钮要真的能用，所以用 role=button + 拦掉冒泡，
+    // 否则点它会顺带触发外层的 <a> 跳转。
+    var shuffle = el("span", "souju-tonight-shuffle", "换一部");
+    shuffle.setAttribute("role", "button");
+    shuffle.setAttribute("tabindex", "0");
+    shuffle.addEventListener("click", function (event) {
+      event.preventDefault();
+      event.stopPropagation();
+      nextTonight(data.key);
+    });
+    actions.appendChild(shuffle);
+
+    body.appendChild(actions);
+    card.appendChild(body);
 
     wrap.appendChild(card);
     return wrap;
@@ -1898,9 +1982,10 @@ html[data-skin="souju-dark"] .short-drama-control-drawer-layer .react-player-epi
     }
 
     if (existing && existing.getAttribute("data-souju-key") === data.key) {
-      // 海报迟到了：内容没变但卡里还是空海报，重建一次把图补上
-      var posterBox = existing.querySelector(".souju-tonight-poster");
-      if (data.poster && posterBox && !posterBox.firstChild) {
+      // 海报迟到了：内容没变但卡里还是空图，重建一次把图补上。
+      // 注意要查 img 本身 —— media 里常驻一层 scrim，firstChild 永远不为空。
+      var hasImg = !!existing.querySelector(".souju-tonight-media img");
+      if (data.poster && !hasImg) {
         existing.remove();
         posterRetry = 0;
         anchor.parentElement.insertBefore(renderTonight(data), anchor);
