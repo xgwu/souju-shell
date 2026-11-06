@@ -61,6 +61,11 @@ final class ShellViewController: UIViewController {
         setupGestures()
         observeWebView()
 
+        // 横屏转回竖屏偶发不旋转的补正，判定条件与原因见 RotationGuard
+        RotationGuard.shared.attach(controller: self) { [weak self] message in
+            self?.model.log("rotate", message)
+        }
+
         downloads.onEvent = { [weak self] name, payload in
             self?.bridge.emit(name, payload: payload)
         }
@@ -72,6 +77,14 @@ final class ShellViewController: UIViewController {
         super.viewDidAppear(animated)
         becomeFirstResponder()
     }
+
+    // MARK: - 方向
+
+    /// 与 `Support/Info.plist` 的 `UISupportedInterfaceOrientations` 保持一致。
+    /// 写在这里是为了让 SwiftUI 的承载控制器向上查询时拿到明确答案，而不是依赖默认值。
+    override var supportedInterfaceOrientations: UIInterfaceOrientationMask { .allButUpsideDown }
+
+    override var shouldAutorotate: Bool { true }
 
     // MARK: - WKWebView 构建
 

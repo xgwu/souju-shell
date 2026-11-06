@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		1CDFC057A65795D44EAD62F6 /* SoujuShellApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD909C79E1EC4827B00C4E38 /* SoujuShellApp.swift */; };
 		F4E82A6ED96F5DBBC57D8AFF /* ShellConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61093665FB82D5E30B90EA71 /* ShellConfig.swift */; };
+		B2A01D6CC7EFA04E692ABA73 /* RotationGuard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C8A4D15ABF4E0BC5DB16420 /* RotationGuard.swift */; };
 		0E95CE5E9F2FAD528E82A7D4 /* ShellModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 271373ABD7ADADC563062E52 /* ShellModel.swift */; };
 		F4625D87F2AF47771F153417 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B759C5A8E8895B528E1471F /* Theme.swift */; };
 		830BE191EB5E427F9A69BD1E /* ShellViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D633AC3EEDC7CE8BA4FF3E6 /* ShellViewController.swift */; };
@@ -31,6 +32,7 @@
 		F5BF48AA40CAD7891EB709FC /* SoujuShell.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SoujuShell.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		DD909C79E1EC4827B00C4E38 /* SoujuShellApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoujuShellApp.swift; sourceTree = "<group>"; };
 		61093665FB82D5E30B90EA71 /* ShellConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShellConfig.swift; sourceTree = "<group>"; };
+		5C8A4D15ABF4E0BC5DB16420 /* RotationGuard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RotationGuard.swift; sourceTree = "<group>"; };
 		271373ABD7ADADC563062E52 /* ShellModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShellModel.swift; sourceTree = "<group>"; };
 		8B759C5A8E8895B528E1471F /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
 		0D633AC3EEDC7CE8BA4FF3E6 /* ShellViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShellViewController.swift; sourceTree = "<group>"; };
@@ -104,6 +106,7 @@
 			isa = PBXGroup;
 			children = (
 				61093665FB82D5E30B90EA71 /* ShellConfig.swift */,
+				5C8A4D15ABF4E0BC5DB16420 /* RotationGuard.swift */,
 				271373ABD7ADADC563062E52 /* ShellModel.swift */,
 				8B759C5A8E8895B528E1471F /* Theme.swift */,
 			);
@@ -239,6 +242,7 @@
 			files = (
 				1CDFC057A65795D44EAD62F6 /* SoujuShellApp.swift in Sources */,
 				F4E82A6ED96F5DBBC57D8AFF /* ShellConfig.swift in Sources */,
+				B2A01D6CC7EFA04E692ABA73 /* RotationGuard.swift in Sources */,
 				0E95CE5E9F2FAD528E82A7D4 /* ShellModel.swift in Sources */,
 				F4625D87F2AF47771F153417 /* Theme.swift in Sources */,
 				830BE191EB5E427F9A69BD1E /* ShellViewController.swift in Sources */,

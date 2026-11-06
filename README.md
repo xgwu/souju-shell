@@ -87,6 +87,7 @@ bash tools/make-ipa.sh       # 打包 → dist/SoujuShell.ipa（ad-hoc 签名，
 | **首页「今晚首选」置顶卡** | ✅ 皮肤 JS 注入 | 取日历里今天更新、且不在追的那一部 |
 | **周表「只看未看过」筛选** | ✅ 皮肤 JS 注入 | 判定依据是站点自己的 `playback-resume` |
 | **短剧竖屏流纸白化** | ✅ 皮肤 CSS | `/short-drama` 与详情页、选集抽屉一并转纸白 |
+| **横屏 → 竖屏方向补正** | ✅ | `Core/RotationGuard.swift`，见下方说明 |
 
 > **2026-11-06 移除「播放页沉浸」**。原先壳会在播放页藏掉站点页头与侧栏、把视频居中到黑底，
 > 并叠一条原生胶囊。但它和站点自己的全屏按钮是两条不相通的路径：点全屏走的是站点的
@@ -94,6 +95,17 @@ bash tools/make-ipa.sh       # 打包 → dist/SoujuShell.ipa（ad-hoc 签名，
 > 网页 CSS 与壳的 UIView 都进不去，设置项（画质增强 / P2P / 弹幕 / 选集）也完全不同。
 > 与其让两个"全屏"体验打架，不如把播放页完整交还给站点。相关文件已删，
 > 备份在 `../.backup/immersive-20261106-1925/`。
+
+**关于方向**：壳里没有任何方向控制代码，`Info.plist` 允许竖屏 + 左右横屏，旋转交给系统。
+但实测偶发「从横屏转回竖屏，界面卡在横屏不动」。诱因在 UIKit / WebKit 一侧——站点「原生全屏」
+走 `video.webkitEnterFullscreen()`，WebKit 的播放器全屏窗口控制器收起时可能把 `UIWindowScene`
+的几何偏好留在横屏；`SFSafariViewController` 与 SwiftUI sheet 在横屏下进出也可能留下同样的残留。
+
+`Core/RotationGuard.swift` 只补**一种确定不合理**的状态：设备已竖持（`portrait`），界面仍是横屏。
+做法是收窄场景掩码到 `.portrait` 触发一次真正的旋转，0.7s 后无论成败都把 `.allButUpsideDown`
+还回去（少这一步本次运行会退化成"只能竖屏"）。反方向（界面竖屏、设备横持）**刻意不处理**——
+那通常是用户开了竖屏锁定，替用户"纠正"反而是 bug。iOS 15 走 `attemptRotationToDeviceOrientation()`，
+该 API 会尊重竖屏锁定，不会硬掰。
 
 **关于原生播放器**：站点有一套完整的 `aimovie_native_player_v1` 协议（`playback.openNativePlayer` / `updateNativePlayerSlot` / `resolveDataRequest` / `cast.startDiscovery`…），工程量是数周级，且每个回包都要按抓包对齐 `command_id` / `generation` 的严格校验。当前壳如实上报 `supportsNativePlayer: false`，站点会判为 `legacy_app` 并**回落到自带的 H5 播放器** —— 看剧这件事完全可用，这是有意的取舍，不是缺陷。
 
@@ -173,6 +185,7 @@ bash tools/make-ipa.sh       # 打包 → dist/SoujuShell.ipa（ad-hoc 签名，
 | 周表筛选 | 8 部中识别出 1 部已看；点开后剩 7 部可见，`souju:unseen-only=1` 已持久化 |
 | 播放页（移除沉浸后） | 模拟器截图：站点页头（返回/剧名/菜单）正常、视频回到 y=68 的 16:9 位置、弹幕正常、无胶囊残留 |
 | 皮肤无回归 | 注入移除沉浸后的 CSS/JS：`/`、`/updates`、`/player/...` 三页均 `movie-light` + body `rgb(250,250,248)`，无 JS 异常；「今晚首选」卡与「只看未看过」筛选仍在 |
+| 方向守卫（`RotationGuard`） | **链路验证通过**：应用内先 `requestGeometryUpdate(.landscapeRight)` 把界面转 90°（证明 `simctl` 做不到的旋转可以被程序驱动），再恢复掩码造出"设备竖持、界面横屏"的卡死态，抛一次方向通知 → 0.45s 后判定卡住、1.35s 内界面回到竖屏、掩码已还原（`retry` 读到 `interface=1`）。注：模拟器 `UIDevice.orientation` 恒为 `unknown(0)`，验证时临时覆盖成 `portrait`，该覆盖已删除 |
 
 实际抓到的桥日志（`Documents/bridge.log` 原文节选）：
 
@@ -374,6 +387,9 @@ script-src 'self' https:            → 没有 unsafe-inline / unsafe-eval
    但那会破坏整站纸白的统一感——目前选择保留统一感。
 9. **短剧页上下模糊区是压纸不是消除**。横屏内容在竖屏里够不满时，上下会露出同一张图的模糊放大版。
     皮肤把它压到 58% 纸色，肉眼是"淡淡的水彩"，不是纯 `#FAFAF8`。
+10. **方向补正只处理一个方向**。设备竖持、界面卡横屏会被补正；反过来（界面竖屏、设备横持）
+    故意不管，因为那多半是用户开了竖屏锁定。另外它依赖 `UIDevice.current.orientation`——
+    手机平放（`faceUp`/`faceDown`）时方向不可信，此时不做判定。
 
 ---
 
@@ -401,6 +417,7 @@ script-src 'self' https:            → 没有 unsafe-inline / unsafe-eval
 SoujuShell/
 ├─ App/      SoujuShellApp.swift          入口
 ├─ Core/     ShellConfig（配置+偏好）/ ShellModel（状态）/ Theme（设计令牌）
+│           RotationGuard（横屏→竖屏残留补正）
 ├─ Web/      ShellViewController（WKWebView 宿主）/ WebContainer
 ├─ Bridge/   BridgeScript（注入桥 JS）/ NativeBridge（RPC 路由）
 │           CustomInjection（自定义 CSS·JS）/ SkinPreset（内置皮肤常量）
