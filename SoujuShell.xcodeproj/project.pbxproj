@@ -1,0 +1,448 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		1CDFC057A65795D44EAD62F6 /* SoujuShellApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD909C79E1EC4827B00C4E38 /* SoujuShellApp.swift */; };
+		F4E82A6ED96F5DBBC57D8AFF /* ShellConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61093665FB82D5E30B90EA71 /* ShellConfig.swift */; };
+		0E95CE5E9F2FAD528E82A7D4 /* ShellModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 271373ABD7ADADC563062E52 /* ShellModel.swift */; };
+		F4625D87F2AF47771F153417 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B759C5A8E8895B528E1471F /* Theme.swift */; };
+		830BE191EB5E427F9A69BD1E /* ShellViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D633AC3EEDC7CE8BA4FF3E6 /* ShellViewController.swift */; };
+		6199B766786D13CE080EC020 /* WebContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF0B00CB9D1D4D4DD36069DB /* WebContainer.swift */; };
+		2E9E1ED9A8CAB37211C28FF4 /* NativeBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 516A1D96421DCFA7BAC83FCA /* NativeBridge.swift */; };
+		E2A31C4AEF112E00ED352CFC /* BridgeScript.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01A34F1E0D16D7A1F959E4DD /* BridgeScript.swift */; };
+		3B5DF956614025F89399EFE7 /* CustomInjection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 750A06DF5FEDDBC16E7BE44D /* CustomInjection.swift */; };
+		43D4DCFB20554C536256D7CE /* SkinPreset.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC386FE7F79D0A50CFD0809D /* SkinPreset.swift */; };
+		4EE7549EA64125042BA2F11B /* DownloadModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 882A4364494BAE8C51276E71 /* DownloadModels.swift */; };
+		68DEA241650C4C25B260ECCE /* DownloadManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3650A907A1DFB63280406F81 /* DownloadManager.swift */; };
+		A1C41C03B622230F9E7CE27E /* OfflinePlayerController.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9FD67A8D12EE2F84190A333 /* OfflinePlayerController.swift */; };
+		8B112E87B79E01E1DFD5FF58 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E184F84906A6E5AAD2763BD /* RootView.swift */; };
+		D8B596F2F6829A5A2633EAFC /* ToolboxView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0CE99644E4B47E6D213FB58D /* ToolboxView.swift */; };
+		AFAE322A3EB7185FB542CA7F /* DownloadListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E970F333E2BFBAE848BF69F /* DownloadListView.swift */; };
+		C20640503EA9A6DE9EE0913A /* CustomStyleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF2F66D325C4A2D80FF815F9 /* CustomStyleView.swift */; };
+		A74D3F0F546C24E1AD1BFE96 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 8D7172619DB15AD08404D409 /* Assets.xcassets */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		F5BF48AA40CAD7891EB709FC /* SoujuShell.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SoujuShell.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		DD909C79E1EC4827B00C4E38 /* SoujuShellApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoujuShellApp.swift; sourceTree = "<group>"; };
+		61093665FB82D5E30B90EA71 /* ShellConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShellConfig.swift; sourceTree = "<group>"; };
+		271373ABD7ADADC563062E52 /* ShellModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShellModel.swift; sourceTree = "<group>"; };
+		8B759C5A8E8895B528E1471F /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
+		0D633AC3EEDC7CE8BA4FF3E6 /* ShellViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShellViewController.swift; sourceTree = "<group>"; };
+		DF0B00CB9D1D4D4DD36069DB /* WebContainer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebContainer.swift; sourceTree = "<group>"; };
+		516A1D96421DCFA7BAC83FCA /* NativeBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeBridge.swift; sourceTree = "<group>"; };
+		01A34F1E0D16D7A1F959E4DD /* BridgeScript.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BridgeScript.swift; sourceTree = "<group>"; };
+		750A06DF5FEDDBC16E7BE44D /* CustomInjection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CustomInjection.swift; sourceTree = "<group>"; };
+		CC386FE7F79D0A50CFD0809D /* SkinPreset.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkinPreset.swift; sourceTree = "<group>"; };
+		882A4364494BAE8C51276E71 /* DownloadModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadModels.swift; sourceTree = "<group>"; };
+		3650A907A1DFB63280406F81 /* DownloadManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadManager.swift; sourceTree = "<group>"; };
+		F9FD67A8D12EE2F84190A333 /* OfflinePlayerController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfflinePlayerController.swift; sourceTree = "<group>"; };
+		8E184F84906A6E5AAD2763BD /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
+		0CE99644E4B47E6D213FB58D /* ToolboxView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolboxView.swift; sourceTree = "<group>"; };
+		9E970F333E2BFBAE848BF69F /* DownloadListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadListView.swift; sourceTree = "<group>"; };
+		AF2F66D325C4A2D80FF815F9 /* CustomStyleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CustomStyleView.swift; sourceTree = "<group>"; };
+		8D7172619DB15AD08404D409 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		12F1C9823B7D241C34392D7F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		424153ED3CD079DB4DB459AF /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		518DA81DB9B99529C0C0AEBE = {
+			isa = PBXGroup;
+			children = (
+				E0F28F7D5B12317D5EEFFEBE /* SoujuShell */,
+				547D009064F7C3F13BEF3460 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		547D009064F7C3F13BEF3460 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				F5BF48AA40CAD7891EB709FC /* SoujuShell.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		E0F28F7D5B12317D5EEFFEBE /* SoujuShell */ = {
+			isa = PBXGroup;
+			children = (
+				D1D0524B025E57AFFF263442 /* App */,
+				35D315DEBBF45F223B169A61 /* Core */,
+				774EB1A00A00AB3CBCF6108E /* Web */,
+				218CD79BBD39F7E39F5F9FAF /* Bridge */,
+				EA733B862C7B03276366155B /* Download */,
+				C71E237AED0167A15E00637D /* UI */,
+				F7ED0AE08FBB92027261B793 /* Support */,
+				887A6F90336FF23D95C3914B /* Resources */,
+			);
+			path = SoujuShell;
+			sourceTree = "<group>";
+		};
+		D1D0524B025E57AFFF263442 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				DD909C79E1EC4827B00C4E38 /* SoujuShellApp.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		35D315DEBBF45F223B169A61 /* Core */ = {
+			isa = PBXGroup;
+			children = (
+				61093665FB82D5E30B90EA71 /* ShellConfig.swift */,
+				271373ABD7ADADC563062E52 /* ShellModel.swift */,
+				8B759C5A8E8895B528E1471F /* Theme.swift */,
+			);
+			path = Core;
+			sourceTree = "<group>";
+		};
+		774EB1A00A00AB3CBCF6108E /* Web */ = {
+			isa = PBXGroup;
+			children = (
+				0D633AC3EEDC7CE8BA4FF3E6 /* ShellViewController.swift */,
+				DF0B00CB9D1D4D4DD36069DB /* WebContainer.swift */,
+			);
+			path = Web;
+			sourceTree = "<group>";
+		};
+		218CD79BBD39F7E39F5F9FAF /* Bridge */ = {
+			isa = PBXGroup;
+			children = (
+				516A1D96421DCFA7BAC83FCA /* NativeBridge.swift */,
+				01A34F1E0D16D7A1F959E4DD /* BridgeScript.swift */,
+				750A06DF5FEDDBC16E7BE44D /* CustomInjection.swift */,
+				CC386FE7F79D0A50CFD0809D /* SkinPreset.swift */,
+			);
+			path = Bridge;
+			sourceTree = "<group>";
+		};
+		EA733B862C7B03276366155B /* Download */ = {
+			isa = PBXGroup;
+			children = (
+				882A4364494BAE8C51276E71 /* DownloadModels.swift */,
+				3650A907A1DFB63280406F81 /* DownloadManager.swift */,
+				F9FD67A8D12EE2F84190A333 /* OfflinePlayerController.swift */,
+			);
+			path = Download;
+			sourceTree = "<group>";
+		};
+		C71E237AED0167A15E00637D /* UI */ = {
+			isa = PBXGroup;
+			children = (
+				8E184F84906A6E5AAD2763BD /* RootView.swift */,
+				0CE99644E4B47E6D213FB58D /* ToolboxView.swift */,
+				9E970F333E2BFBAE848BF69F /* DownloadListView.swift */,
+				AF2F66D325C4A2D80FF815F9 /* CustomStyleView.swift */,
+			);
+			path = UI;
+			sourceTree = "<group>";
+		};
+		F7ED0AE08FBB92027261B793 /* Support */ = {
+			isa = PBXGroup;
+			children = (
+				12F1C9823B7D241C34392D7F /* Info.plist */,
+			);
+			path = Support;
+			sourceTree = "<group>";
+		};
+		887A6F90336FF23D95C3914B /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				8D7172619DB15AD08404D409 /* Assets.xcassets */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		42AEFBAE01D2DFD981F7DA7D /* SoujuShell */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 354589B28580510B6EC24620 /* Build configuration list for PBXNativeTarget "SoujuShell" */;
+			buildPhases = (
+				7A70D71C385290AF96BF1031 /* Sources */,
+				424153ED3CD079DB4DB459AF /* Frameworks */,
+				285BB1C1430063331E9F5DD0 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = SoujuShell;
+			productName = SoujuShell;
+			productReference = F5BF48AA40CAD7891EB709FC /* SoujuShell.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		46F86FAA6BBF9AC94A7E4595 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1430;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					42AEFBAE01D2DFD981F7DA7D = {
+						CreatedOnToolsVersion = 14.3;
+					};
+				};
+			};
+			buildConfigurationList = 1F4E3D13C2320EDA50221924 /* Build configuration list for PBXProject "SoujuShell" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+				"zh-Hans",
+			);
+			mainGroup = 518DA81DB9B99529C0C0AEBE;
+			productRefGroup = 547D009064F7C3F13BEF3460 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				42AEFBAE01D2DFD981F7DA7D /* SoujuShell */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		285BB1C1430063331E9F5DD0 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A74D3F0F546C24E1AD1BFE96 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		7A70D71C385290AF96BF1031 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				1CDFC057A65795D44EAD62F6 /* SoujuShellApp.swift in Sources */,
+				F4E82A6ED96F5DBBC57D8AFF /* ShellConfig.swift in Sources */,
+				0E95CE5E9F2FAD528E82A7D4 /* ShellModel.swift in Sources */,
+				F4625D87F2AF47771F153417 /* Theme.swift in Sources */,
+				830BE191EB5E427F9A69BD1E /* ShellViewController.swift in Sources */,
+				6199B766786D13CE080EC020 /* WebContainer.swift in Sources */,
+				2E9E1ED9A8CAB37211C28FF4 /* NativeBridge.swift in Sources */,
+				E2A31C4AEF112E00ED352CFC /* BridgeScript.swift in Sources */,
+				3B5DF956614025F89399EFE7 /* CustomInjection.swift in Sources */,
+				43D4DCFB20554C536256D7CE /* SkinPreset.swift in Sources */,
+				4EE7549EA64125042BA2F11B /* DownloadModels.swift in Sources */,
+				68DEA241650C4C25B260ECCE /* DownloadManager.swift in Sources */,
+				A1C41C03B622230F9E7CE27E /* OfflinePlayerController.swift in Sources */,
+				8B112E87B79E01E1DFD5FF58 /* RootView.swift in Sources */,
+				D8B596F2F6829A5A2633EAFC /* ToolboxView.swift in Sources */,
+				AFAE322A3EB7185FB542CA7F /* DownloadListView.swift in Sources */,
+				C20640503EA9A6DE9EE0913A /* CustomStyleView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		92E165A9035A603BE73D2E62 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				MTL_FAST_MATH = YES;
+				SDKROOT = iphoneos;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_TESTABILITY = YES;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				ONLY_ACTIVE_ARCH = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		E1D3BBA94590957B0374D6E9 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				MTL_FAST_MATH = YES;
+				SDKROOT = iphoneos;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		F22D2FFCC45240A8FF5EBE4A /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "SoujuShell/Support/Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.wuxiaogang.soujushell;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		FE4F802C632EAD717BA35062 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "SoujuShell/Support/Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.wuxiaogang.soujushell;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		1F4E3D13C2320EDA50221924 /* Build configuration list for PBXProject "SoujuShell" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				92E165A9035A603BE73D2E62 /* Debug */,
+				E1D3BBA94590957B0374D6E9 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		354589B28580510B6EC24620 /* Build configuration list for PBXNativeTarget "SoujuShell" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				F22D2FFCC45240A8FF5EBE4A /* Debug */,
+				FE4F802C632EAD717BA35062 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+	};
+	rootObject = 46F86FAA6BBF9AC94A7E4595 /* Project object */;
+}

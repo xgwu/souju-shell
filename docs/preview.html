@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>搜剧壳 · 原生界面预览</title>
+<style>
+  :root {
+    --canvas: #FAFAF8;
+    --card: #FFFFFF;
+    --ink: #12100F;
+    --ink-mid: #6B6863;
+    --ink-faint: #A3A09A;
+    --line: #E8E6E1;
+    --accent: #FF5C35;
+    /* 壳内界面（深色） */
+    --d-canvas: #08080A;
+    --d-card: #151518;
+    --d-line: #2A2A2E;
+    --d-ink: #F4F2EE;
+    --d-mid: #8A8A8F;
+    --d-faint: #5C5C62;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--canvas);
+    color: var(--ink);
+    font: 400 14px/1.55 -apple-system, "SF Pro Text", "PingFang SC", "Helvetica Neue", sans-serif;
+    -webkit-font-smoothing: antialiased;
+    padding: 56px 32px 80px;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; }
+
+  header { margin-bottom: 44px; max-width: 720px; }
+  .eyebrow {
+    font-size: 11px; letter-spacing: 2.4px; text-transform: uppercase;
+    color: var(--ink-faint); font-weight: 600; margin-bottom: 14px;
+  }
+  h1 { font-size: 32px; line-height: 1.25; font-weight: 600; letter-spacing: -0.3px; }
+  h1 em { font-style: normal; color: var(--accent); }
+  .lede { margin-top: 14px; font-size: 14px; color: var(--ink-mid); line-height: 1.75; }
+  .rule { height: 2px; width: 28px; background: var(--accent); margin: 22px 0 0; }
+
+  .grid {
+    display: grid; grid-template-columns: repeat(4, 268px);
+    gap: 28px; justify-content: start; margin-top: 48px;
+  }
+  @media (max-width: 1179px) { .grid { grid-template-columns: repeat(2, 268px); } }
+  @media (max-width: 680px)  { body { padding: 32px 18px 56px; } .grid { grid-template-columns: 1fr; } }
+
+  .phone-cap { display: flex; align-items: baseline; gap: 8px; margin-bottom: 12px; }
+  .phone-cap b { font-size: 12px; font-weight: 600; letter-spacing: 0.2px; }
+  .phone-cap span { font-size: 11px; color: var(--ink-faint); }
+
+  .phone {
+    width: 268px; height: 588px; border-radius: 40px; overflow: hidden;
+    background: var(--d-canvas); position: relative;
+    box-shadow: 0 1px 1px rgba(18,16,15,.06), 0 18px 40px -12px rgba(18,16,15,.28);
+    display: flex; flex-direction: column;
+  }
+  /* 灵动岛 + 状态栏 */
+  .statusbar {
+    height: 46px; flex: 0 0 46px; display: flex; align-items: flex-end;
+    justify-content: space-between; padding: 0 22px 6px; position: relative;
+  }
+  .island {
+    position: absolute; top: 9px; left: 50%; transform: translateX(-50%);
+    width: 74px; height: 21px; border-radius: 12px; background: #000;
+  }
+  .statusbar time { font-size: 12px; font-weight: 600; color: var(--d-ink); letter-spacing: .2px; }
+  .sb-icons { display: flex; gap: 3px; align-items: center; }
+  .sb-icons i { display: block; width: 3px; background: var(--d-ink); border-radius: 1px; }
+  .sb-icons .b1 { height: 4px; } .sb-icons .b2 { height: 6px; }
+  .sb-icons .b3 { height: 8px; } .sb-icons .b4 { height: 10px; }
+  .sb-batt { width: 20px; height: 10px; border: 1px solid var(--d-ink); border-radius: 3px; opacity: .9; }
+
+  .screen { flex: 1; padding: 0 22px; display: flex; flex-direction: column; overflow: hidden; }
+
+  /* 启动页 */
+  .boot { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; }
+  .boot .wordmark { font-size: 30px; font-weight: 600; letter-spacing: 7px; color: var(--d-ink); }
+  .boot .bar { width: 26px; height: 2px; background: var(--accent); }
+  .boot .hint { font-size: 10.5px; color: var(--d-faint); font-family: "SF Mono", Menlo, monospace; letter-spacing: .3px; }
+  .boot .pulse { margin-top: 6px; width: 120px; height: 2px; background: var(--d-card); border-radius: 2px; overflow: hidden; }
+  .boot .pulse i { display: block; height: 100%; width: 42%; background: var(--accent); border-radius: 2px; animation: slide 1.5s ease-in-out infinite; }
+  @keyframes slide { 0% { transform: translateX(-100%);} 100% { transform: translateX(340%); } }
+
+  /* 失败页 */
+  .fail { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 0; padding-bottom: 24px; }
+  .fail h2 { font-size: 27px; font-weight: 600; color: var(--d-ink); letter-spacing: -0.2px; }
+  .fail p { margin-top: 12px; font-size: 12.5px; line-height: 1.75; color: var(--d-mid); }
+  .fail code { display: block; margin-top: 10px; font-size: 10px; color: var(--d-faint); font-family: "SF Mono", Menlo, monospace; }
+  .btn-primary {
+    margin-top: 26px; height: 48px; border-radius: 13px; background: var(--accent);
+    color: #fff; font-size: 15px; font-weight: 600; display: flex; align-items: center;
+    justify-content: center; letter-spacing: .4px;
+  }
+  .btn-ghost {
+    margin-top: 4px; height: 42px; display: flex; align-items: center; justify-content: center;
+    color: var(--d-mid); font-size: 12.5px; font-weight: 500;
+  }
+
+  /* 工具箱 */
+  .sheet-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 4px 0 10px; flex: 0 0 auto;
+  }
+  .sheet-head b { font-size: 13px; font-weight: 600; color: var(--d-ink); }
+  .sheet-head span { font-size: 12px; color: var(--accent); font-weight: 500; }
+  .sheet-body {
+    overflow: hidden; flex: 1; display: flex; flex-direction: column; gap: 9px; padding-bottom: 16px;
+    -webkit-mask-image: linear-gradient(to bottom, #000 78%, transparent 100%);
+            mask-image: linear-gradient(to bottom, #000 78%, transparent 100%);
+  }
+  .block { background: var(--d-card); border-radius: 13px; padding: 9px 12px 10px; }
+  .block .bt { font-size: 9px; letter-spacing: 1.2px; color: var(--d-faint); font-weight: 600; margin-bottom: 2px; }
+  .row { display: flex; align-items: center; gap: 8px; padding: 7px 0; border-bottom: 1px solid var(--d-line); }
+  .row:last-child { border-bottom: 0; }
+  .row .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--d-line); flex: 0 0 6px; }
+  .row .dot.on { background: var(--accent); }
+  .row .txt { flex: 1; min-width: 0; }
+  .row .txt b { display: block; font-size: 12px; font-weight: 500; color: var(--d-ink); }
+  .row .txt small { display: block; font-size: 9.5px; color: var(--d-faint); font-family: "SF Mono", Menlo, monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row .tag { font-size: 9.5px; color: var(--accent); }
+  .row .chev { font-size: 10px; color: var(--d-faint); }
+  .field { display: flex; gap: 6px; margin-top: 9px; }
+  .field div { flex: 1; height: 30px; border-radius: 8px; background: var(--d-canvas); display: flex; align-items: center; padding: 0 9px; font-size: 10px; color: var(--d-faint); font-family: "SF Mono", Menlo, monospace; }
+  .field b { width: 52px; height: 30px; border-radius: 8px; background: var(--accent); color: #fff; font-size: 11px; display: flex; align-items: center; justify-content: center; font-weight: 600; }
+  .toggle { margin-left: auto; width: 34px; height: 20px; border-radius: 10px; background: var(--accent); position: relative; flex: 0 0 34px; }
+  .toggle i { position: absolute; top: 2px; right: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; }
+  .toggle.off { background: var(--d-line); }
+  .toggle.off i { right: auto; left: 2px; }
+  .danger { color: #E5484D; }
+
+  /* 下载列表 */
+  .dl-title { font-size: 13px; font-weight: 600; color: var(--d-ink); }
+  .dl-card { background: var(--d-card); border-radius: 13px; padding: 12px; }
+  .dl-card b { font-size: 12px; font-weight: 500; color: var(--d-ink); display: block; }
+  .dl-card small { font-size: 9.5px; color: var(--d-faint); display: block; margin-top: 3px; }
+  .pbar { height: 2px; border-radius: 2px; background: var(--d-line); margin-top: 9px; overflow: hidden; }
+  .pbar i { display: block; height: 100%; background: var(--accent); border-radius: 2px; }
+  .pbar.dim i { opacity: .35; }
+  .dl-actions { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+  .pill { height: 26px; padding: 0 13px; border-radius: 13px; background: var(--accent); color: #fff; font-size: 10.5px; font-weight: 600; display: flex; align-items: center; }
+  .pill.line { background: transparent; border: 1px solid var(--d-line); color: var(--d-ink); }
+  .dl-actions .rm { margin-left: auto; font-size: 10.5px; color: var(--d-faint); }
+
+  /* 底注 */
+  footer { max-width: 720px; margin-top: 56px; padding-top: 24px; border-top: 1px solid var(--line); }
+  footer p { font-size: 12.5px; color: var(--ink-mid); line-height: 1.8; }
+  footer p + p { margin-top: 10px; }
+  .swatches { display: flex; gap: 18px; margin-top: 22px; flex-wrap: wrap; }
+  .sw { display: flex; align-items: center; gap: 7px; font-size: 11px; color: var(--ink-mid); }
+  .sw i { width: 15px; height: 15px; border-radius: 4px; border: 1px solid rgba(18,16,15,.1); }
+  .sw code { font-family: "SF Mono", Menlo, monospace; font-size: 10px; color: var(--ink-faint); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="eyebrow">Souju Shell · Native Chrome</div>
+    <h1>壳的原生界面只有<em>四屏</em></h1>
+    <p class="lede">
+      网页本身占满全屏，壳不往里面塞任何 UI。这四屏是壳自己的：冷启动、全线路失败、工具箱、离线列表。
+      取色来自 souju-light 的那套令牌 —— 纸白容器里放深色界面，强调橙只出现在三个地方：进度线、主按钮、当前线路标记。
+    </p>
+    <div class="rule"></div>
+  </header>
+
+  <div class="grid">
+
+    <!-- 1 启动 -->
+    <div>
+      <div class="phone-cap"><b>01 启动</b><span>约 0.6–1.5s</span></div>
+      <div class="phone">
+        <div class="statusbar"><div class="island"></div><time>21:48</time>
+          <div class="sb-icons"><i class="b1"></i><i class="b2"></i><i class="b3"></i><i class="b4"></i><div class="sb-batt"></div></div>
+        </div>
+        <div class="screen">
+          <div class="boot">
+            <div class="wordmark">搜剧</div>
+            <div class="bar"></div>
+            <div class="hint">正在打开 souju.ai</div>
+            <div class="pulse"><i></i></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 2 失败 -->
+    <div>
+      <div class="phone-cap"><b>02 全线路失败</b><span>兜底页，不是白屏</span></div>
+      <div class="phone">
+        <div class="statusbar"><div class="island"></div><time>21:52</time>
+          <div class="sb-icons"><i class="b1"></i><i class="b2"></i><i class="b3"></i><i class="b4"></i><div class="sb-batt"></div></div>
+        </div>
+        <div class="screen">
+          <div class="fail">
+            <h2>线路打不开</h2>
+            <p>所有线路都没有响应。站点是域名轮换架构，旧域名随时可能被换掉 —— 在工具箱里填一个新域名通常就好了。</p>
+            <code>NSURLErrorTimedOut · 8s</code>
+            <div class="btn-primary">重试</div>
+            <div class="btn-ghost">打开工具箱换线路</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 3 工具箱 -->
+    <div>
+      <div class="phone-cap"><b>03 工具箱</b><span>摇一摇 / 双指下滑</span></div>
+      <div class="phone">
+        <div class="statusbar"><div class="island"></div><time>21:54</time>
+          <div class="sb-icons"><i class="b1"></i><i class="b2"></i><i class="b3"></i><i class="b4"></i><div class="sb-batt"></div></div>
+        </div>
+        <div class="screen">
+          <div class="sheet-head"><b>工具箱</b><span>完成</span></div>
+          <div class="sheet-body">
+            <div class="block">
+              <div class="bt">线路</div>
+              <div class="row"><span class="dot on"></span><div class="txt"><b>souju.ai</b><small>https://souju.ai</small></div><span class="tag">当前</span></div>
+              <div class="row"><span class="dot"></span><div class="txt"><b>hctd4.com</b><small>https://hctd4.com</small></div></div>
+              <div class="field"><div>https://新域名</div><b>打开</b></div>
+            </div>
+            <div class="block">
+              <div class="bt">页面</div>
+              <div class="row"><div class="txt"><b>重新加载</b></div><span class="chev">›</span></div>
+              <div class="row"><div class="txt"><b>返回上一页</b></div><span class="chev">›</span></div>
+              <div class="row"><div class="txt"><b>复制当前地址</b></div><span class="chev">›</span></div>
+            </div>
+            <div class="block">
+              <div class="bt">诊断</div>
+              <div class="row"><div class="txt"><b>启用离线下载</b><small>上报 download.* 能力</small></div><div class="toggle"><i></i></div></div>
+              <div class="row"><div class="txt"><b>跟随站点主题</b><small>关闭后状态栏固定深色</small></div><div class="toggle"><i></i></div></div>
+              <div class="row"><div class="txt"><b>桥日志</b><small>42 条 · 含原始 payload</small></div><span class="chev">›</span></div>
+            </div>
+            <div class="block"><div class="row"><div class="txt"><b class="danger">清理站点数据</b><small>白屏、登录态异常时用</small></div></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 4 下载 -->
+    <div>
+      <div class="phone-cap"><b>04 离线</b><span>断网可看</span></div>
+      <div class="phone">
+        <div class="statusbar"><div class="island"></div><time>22:06</time>
+          <div class="sb-icons"><i class="b1"></i><i class="b2"></i><i class="b3"></i><i class="b4"></i><div class="sb-batt"></div></div>
+        </div>
+        <div class="screen">
+          <div class="sheet-head"><b>离线</b><span>关闭</span></div>
+          <div class="sheet-body">
+            <div class="dl-card">
+              <b>小城良方 · 第 28 集</b>
+              <small>已完成 · 412 MB</small>
+              <div class="pbar dim"><i style="width:100%"></i></div>
+              <div class="dl-actions"><div class="pill">播放</div><span class="rm">删除</span></div>
+            </div>
+            <div class="dl-card">
+              <b>小城良方 · 第 29 集</b>
+              <small>下载中 · 63% · 1180 / 1873 分片</small>
+              <div class="pbar"><i style="width:63%"></i></div>
+              <div class="dl-actions"><span class="rm">删除</span></div>
+            </div>
+            <div class="dl-card">
+              <b>北境行 · 第 04 集</b>
+              <small style="color:#E5484D">失败 · HTTP 403</small>
+              <div class="pbar"><i style="width:12%;background:#E5484D"></i></div>
+              <div class="dl-actions"><div class="pill line">重试</div><span class="rm">删除</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <footer>
+    <p><b>为什么壳的界面是深色：</b>站点自身默认主题是 <code>movie-dark</code>（theme-color <code>#071013</code>）。如果启动页用纸白，冷启动会在 200ms 内闪一下白再跳黑 —— 那看起来像坏了。所以容器用深色，纸白只留给这份预览页。</p>
+    <p><b>强调色纪律：</b>全屏只有进度线、主按钮、当前线路标记三处出现 <code>#FF5C35</code>，其余全部靠字重与留白分级。这是 souju-light 里"强调色像素占比 &lt;3%"那条约束的落地。</p>
+    <div class="swatches">
+      <div class="sw"><i style="background:#08080A"></i>壳画布 <code>#08080A</code></div>
+      <div class="sw"><i style="background:#151518"></i>卡片 <code>#151518</code></div>
+      <div class="sw"><i style="background:#F4F2EE"></i>暖白 <code>#F4F2EE</code></div>
+      <div class="sw"><i style="background:#FF5C35"></i>强调橙 <code>#FF5C35</code></div>
+      <div class="sw"><i style="background:#FAFAF8"></i>纸白（预览页） <code>#FAFAF8</code></div>
+    </div>
+  </footer>
+
+</div>
+</body>
+</html>
