@@ -188,6 +188,7 @@ bash tools/make-ipa.sh       # 打包 → dist/SoujuShell.ipa（ad-hoc 签名，
 | 皮肤无回归 | 注入移除沉浸后的 CSS/JS：`/`、`/updates`、`/player/...` 三页均 `movie-light` + body `rgb(250,250,248)`，无 JS 异常；「今晚首选」卡与「只看未看过」筛选仍在 |
 | 首页顶部浓缩（chips 单行） | 无头 Chromium 注入真实皮肤实测：提示条 164→40px、顶部 336→212px、「本周追剧」y=605→481；375/390/430 三宽度均为一行（可视 351/366/406，内容 778）；`scrollLeft` 可置 412 上限，滑动后行高不变 |
 | 浓缩后其余路由 | `/updates`、`/short-drama` 同皮肤实测无错位（选择器限定在 `.movie-home-prompt-groups`，非首页不命中） |
+| 首页 hero 标题移除 | 同页 A/B：hero 220→174px、搜索框 y=118→72、「本周追剧」y=474→428；`/updates` 上那个 `.text-center` 未被误伤（规则挂在 `.movie-home-page-shell` 下，该页 `homeShell=false`）；模拟器实装确认标题已消失、无空盒残留 |
 | 默认深色启动 | 首次安装直接落 `data-skin="souju-dark"`；老安装里 `shell.skin` 为旧默认值 `souju-light`、且 `shell.skinExplicit` 为假 → 启动时自动改写为 `souju-dark`（`simctl` 读 plist 确认已落盘） |
 | 主题开关 | 工具箱顶部「主题」默认选中**深色**；点「浅色」即时切到纸白（`body` 回 `rgb(250,250,248)`、`data-skin="souju-light"`），杀进程重启后仍是浅色（`skinExplicit` 已置真，不再被迁移覆盖） |
 | 深色全路由无回归 | `/`、`/updates`、`/player/...`、`/short-drama` 四页截图逐一比对：画布 `#0E0E10`、卡片 `#191A1D` + 1px 描边、文字暖白；tab 选中态为暖白下划线而非橙；浅色版同四页无变化 |
@@ -268,7 +269,8 @@ bash tools/make-ipa.sh       # 打包 → dist/SoujuShell.ipa（ad-hoc 签名，
 | 首页日期条 | 整块色卡 + 青色描边 | 无底色，选中是 2px 橙色下划线 |
 | 首页剧集卡 | 横向滑动、图上压字 | 三列海报流，海报 2:3，标题/年份落在海报下方 |
 | 「大家都在看」 | 148px 横滑卡片 | 三列网格 + 极轻角标（`更新` 才给橙色） |
-| 首页顶部提示（热门影片 / 推荐输入） | 两段「标题 + chips」折行，共 4 行 / 336px | 合并为一行横滑，2 行 / 212px（首屏多露出 124px） |
+| 首页顶部提示（热门影片 / 推荐输入） | 两段「标题 + chips」折行，共 4 行 / 336px | 合并为一行横滑，2 行 / 212px；再摘掉搜索框上方的冗余大标题后 174px（首屏累计多露出 162px） |
+| 首页搜索框上方的大标题「搜剧AI」 | `h1` + 「永久域名 souju.ai」两行居中 | 整块隐藏——站点 header 已经有 logo 和站名，这里纯重复 |
 | 周表 `/updates` | 圆角色块日期 + 分段胶囊 | 同款下划线指示器，卡片降为白底细边 |
 | 底部导航 | 深色磨砂 + 青色选中环 | 纸白磨砂 + 墨色图标 + 选中橙色下划线 |
 | 广告位 | 内嵌推荐位 | 隐藏（`movie-player-info-ad-*` / `movie-content-grid-ad`） |
@@ -324,6 +326,25 @@ JS 同理只有一份模板 `skinJSTemplate`，三处占位 `__SKIN__` / `__THEM
 实测（iPhone 14 / 390×844）：提示条 164px → 40px（34px chip + 6px 留白），顶部 336px → 212px，
 「本周追剧」从 y=605 提到 481。8 个 chip 一个不少：内容宽 778px、可视 366px，右缘自然裁掉半个 chip
 暗示可滑。分组标题收起是有意的——`热门影片`/`推荐输入` 在单行里更像噪音，chips 本身自解释。
+
+**紧接着又摘掉了 hero 大标题**：站点 header 左上角已经有 logo + 「搜剧AI SOUJU.AI」，
+搜索框上方那块居中的 `h1` 是同一句话的第二次出现，白占 34px 高 + 12px flex gap。
+域名那行（`.text-center > div.mt-2`）皮肤早就隐藏了，所以整块 `.text-center` 可以一起摘掉——
+只删 `h1` 会留下一个空盒，flex 的 `gap` 照旧生效，等于只省了 34px 中的一部分：
+
+```css
+.text-center > h1 { display: none !important; }        /* 兜底：老引擎也能删掉文字 */
+.text-center:has(> h1) { display: none !important; }   /* 盒子一起收走，gap 才真的不占位 */
+```
+
+`display: contents` 之于 chips、`:has()` 之于空盒，是同一类思路：**要省空间，得让盒子本身退出布局，
+而不是只把里面的东西变透明**。`:has()` 需要 Safari 15.4+（WKWebView 与站点基线一致），
+不支持的引擎会整条丢弃、退回上一条，最坏结果是"标题还在"，不会版面崩坏。
+
+同页 A/B（同一页面先关规则再开规则，排除内容差异）：hero 220px → 174px，
+搜索框 y=118 → 72，chips y=244 → 198，「本周追剧」y=474 → 428。
+`padding-top` 顺手从 4px 提到 8px——搜索框成了首屏第一块，得和 header 的分隔线留一点呼吸，
+否则 4px 看着像贴死。
 
 **短剧竖屏流也跟着变**（`/short-drama` 与 `/short-drama/<id>`）：早期版本把这两页排除在皮肤之外，
 理由是"全屏视频用深色更稳"。实际用下来，从浅色首页点进短剧后整页突然变黑，观感是断裂的。

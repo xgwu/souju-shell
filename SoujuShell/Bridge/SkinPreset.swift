@@ -177,12 +177,15 @@ html[data-skin="souju-light"] .movie-button-primary {
 }
 
 /* ---------- 首页 hero ---------- */
-html[data-skin="souju-light"] .movie-home-page-shell .text-center h1 {
-  color: var(--ink) !important;
-  font-size: 1.5rem !important;
-  font-weight: 700 !important;
-  letter-spacing: -0.02em !important;
-  line-height: 1.25 !important;
+/* 站点自己的 header 已经带了 logo + 「搜剧AI」站名，搜索框上方这个居中的 h1 是重复信息，
+   白占 30px 高 + 12px flex gap。域名那行（.text-center > div.mt-2）早就隐藏了，
+   所以整个 .text-center 盒子可以一起摘掉——留一个空盒只会让 gap 继续存在。
+   :has() 不支持的引擎（Safari < 15.4）会整条丢弃，此时靠上面那条只删 h1 兜底。 */
+html[data-skin="souju-light"] .movie-home-page-shell .text-center > h1 {
+  display: none !important;
+}
+html[data-skin="souju-light"] .movie-home-page-shell .text-center:has(> h1) {
+  display: none !important;
 }
 html[data-skin="souju-light"] .home-permanent-domain,
 html[data-skin="souju-light"] .movie-home-page-shell .text-center > div.mt-2 {
@@ -191,9 +194,10 @@ html[data-skin="souju-light"] .movie-home-page-shell .text-center > div.mt-2 {
 html[data-skin="souju-light"] img.movie-brand-lockup {
   filter: grayscale(1) contrast(1.15) brightness(0.5);
 }
+/* 标题摘掉后搜索框成了首屏第一块，padding-top 从 4px 提到 8px，和 header 留一点呼吸 */
 html[data-skin="souju-light"] .movie-home-page-shell .mx-auto.max-w-3xl {
   gap: 0.75rem !important;
-  padding-top: 0.25rem !important;
+  padding-top: 0.5rem !important;
 }
 
 /* ---------- 搜索框 ---------- */
@@ -1302,9 +1306,7 @@ html[data-skin="souju-dark"] .movie-button-primary svg {
 }
 
 /* ---------- 首页 hero ---------- */
-html[data-skin="souju-dark"] .movie-home-page-shell .text-center h1 {
-  color: var(--txt) !important;
-}
+/* 标题在 light 里已隐藏（dark 由 light 派生，display:none 会原样继承），这里不再重复写 */
 /* 品牌标自带一块青蓝，会把「墨玉 + 暖白 + 一个橙」稀释掉：去色后提亮，落在暖白段 */
 html[data-skin="souju-dark"] img.movie-brand-lockup {
   filter: grayscale(1) brightness(1.32) !important;
