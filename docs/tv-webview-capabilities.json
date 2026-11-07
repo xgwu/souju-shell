@@ -1,0 +1,140 @@
+{
+  "measured_at": "2026-11-07 10:05-10:25 GMT+8",
+  "device": {
+    "model_from_ui": "75R675C (鹤7 Pro)",
+    "ro.product.model": "tcl_mt5879_cn",
+    "ro.hardware": "mt9952",
+    "ro.board.platform": "mt5879",
+    "persist.xfar.platform": "MT9653-DMIC-4",
+    "ro.build.version.release": "11",
+    "ro.build.version.sdk": 30,
+    "ro.build.display.id": "RQ3A.210705.001",
+    "ro.build.fingerprint": "TCL/tcl_mt5879_cn_db/tcl_mt5879_cn:11/RQ3A.210705.001/2026012200:user/release-keys",
+    "ro.product.cpu.abi": "armeabi-v7a",
+    "ro.product.cpu.abilist": "armeabi-v7a,armeabi",
+    "wm_size": "1920x1080",
+    "wm_density": 240,
+    "display_hdr_types": [
+      1,
+      2,
+      3,
+      4
+    ],
+    "firmware": "V8-0012T11-LF1V706.003371",
+    "adb_host": "Android.local / 192.168.0.4:5555"
+  },
+  "webview": {
+    "package": "com.android.webview",
+    "version": "83.0.4103.120",
+    "engine": "Chromium 83",
+    "is_32bit": true,
+    "fallback_logic_enabled": false,
+    "providers_installed": [
+      "com.android.webview"
+    ]
+  },
+  "viewport": {
+    "innerWidth": 1280,
+    "innerHeight": 720,
+    "devicePixelRatio": 1.5,
+    "screen": [
+      1280,
+      720
+    ],
+    "note": "物理 1920x1080 @ density 240；CSS 视口 = 1280x720 @ dpr 1.5"
+  },
+  "javascript": {
+    "supported": {
+      "optionalChaining": true,
+      "nullish": true,
+      "logicalNullishAssign": false,
+      "logicalAndAssign": false,
+      "staticClassFields": true,
+      "catchNoParam": true,
+      "numericSeparator": true,
+      "privateFields": true,
+      "bigint": true,
+      "dynamicImport": null
+    },
+    "apis": {
+      "ResizeObserver": "function",
+      "IntersectionObserver": "function",
+      "MutationObserver": "function",
+      "MediaSource": "function",
+      "mseH264": true,
+      "mseHEVC": false,
+      "requestFullscreen": "function",
+      "webkitRequestFullscreen": "function",
+      "fetch": "function",
+      "PromiseAny": "undefined",
+      "replaceAll": "undefined",
+      "structuredClone": "undefined",
+      "WebAssembly": "object",
+      "WebGL": true,
+      "localStorage": true
+    },
+    "video": {
+      "hlsNative": "maybe",
+      "h264": "probably",
+      "hevc": "",
+      "vp9": "probably",
+      "av1": ""
+    },
+    "missing_in_chrome83": [
+      "Array.prototype.at",
+      "Array.prototype.findLast",
+      "String.prototype.replaceAll",
+      "Object.hasOwn",
+      "Promise.any",
+      "structuredClone",
+      "WeakRef",
+      "FinalizationRegistry",
+      "AggregateError",
+      "crypto.randomUUID",
+      "AbortSignal.timeout",
+      "Intl.Segmenter"
+    ]
+  },
+  "css": {
+    "flex_gap_supported": false,
+    "flex_gap_probe": "second child offsetLeft=10 with gap:10px (should be 20)",
+    "aspect_ratio": false,
+    "selector_has": false,
+    "selector_focus_visible": false,
+    "inset": false,
+    "content_visibility": false,
+    "clamp": true,
+    "backdrop_filter": true,
+    "grid_gap": true,
+    "object_position": true,
+    "position_sticky": true
+  },
+  "site_audit": {
+    "initial_js_files": 10,
+    "initial_js_chars": 1017897,
+    "lazy_chunks_valid": 119,
+    "lazy_chunks_chars": 2586618,
+    "parse_level_incompatible_syntax": 0,
+    "unguarded_runtime_apis": {
+      "Array.prototype.at": 6,
+      "String.prototype.replaceAll": 1,
+      "crypto.randomUUID": "1 unguarded call plus guarded fallbacks"
+    },
+    "self_polyfilled": [
+      "WeakRef",
+      "AggregateError",
+      "AbortSignal.timeout",
+      "Array.prototype.findLast"
+    ],
+    "site_css_chars": 492264,
+    "site_css_unsupported_features": {
+      "gap": 88,
+      "aspect-ratio": 25,
+      ":has": 20,
+      "inset": 4,
+      ":focus-visible": 74
+    }
+  },
+  "user_agent_of_builtin_browser": "Mozilla/5.0 (iPad; U; CPU OS 5_0 like Mac OS X; en-us) AppleWebKit/534.46 (KHTML, like Gecko) Version/5.0.2 Mobile/9A5248d Safari/6533.18.5#2.0#TCL/",
+  "note": "内置浏览器 com.tcl.browser 使用系统 com.android.webview 83，但强制伪造 iPad Safari 5.0.2 UA；自建 App 应覆盖为正常 UA。"
+}

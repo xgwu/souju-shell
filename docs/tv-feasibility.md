@@ -1,7 +1,8 @@
 # 搜剧 AI 电视版（雷鸟鹤系列）可行性与技术方案
 
 > 调研日期：2026-11-07 · 目标设备：**雷鸟 鹤7 Pro 75R675C**（MT9653 / Android 11）
-> 固件：`V8-0012T11-LF1V706.003371`（已是最新，OTA 检查无更新）
+> 固件：`V8-0012T11-LF1V706.003371` · **WebView：Chromium 83.0.4103.120（实测）**
+> 实测数据：`docs/tv-webview-capabilities.json` · 复测工具：`tools/tv-webview-probe.py`
 > 参考实现：同仓 iOS 版 `souju-shell`（6049 行 Swift）
 
 ---
@@ -10,46 +11,53 @@
 
 **可行，且比 iOS 版省事得多。**
 
-一句话概括取舍：**这条路唯一真正难的地方是遥控器，其他都是移植。**
+一句话概括取舍：**这条路有两个真难点 —— 遥控器焦点，和一个 2020 年的 WebView 内核。其余都是移植。**
 
 三条路线里推荐 **A（WebView 壳）先跑通 → B（补原生播放器）**，不做全原生。理由在 §3。
 
 必须先说清楚一个前提：**Android 侧没有 iOS 那套 7 天限制**。APK 用自签名证书，装一次永久有效，不会因为证书过期闪退。iOS 版为了续签折腾的那一整套（Sideloadly、daemon、Wi-Fi 同步）在电视上完全不存在。
 
-### 0.1 核对截图后的四处调整
+### 0.1 两轮校准：截图 → ADB 实测
 
-| 项 | 原判断 | 截图核对后 | 影响 |
-|---|---|---|---|
-| 机型 | 按「鹤6 24款」假设 | **鹤7 Pro 75R675C**，2023 年 MiniLED | 平台同代（MT9653 + Android 11），方案主体不变 |
-| WebView 风险 | 最大不确定项，概率「中」 | 固件 V706 + Android 11 → 概率降为**低–中** | 仍须实测，但可带乐观预期开工 |
-| B 阶段定位 | 可选 | **建议做** | 面板支持 DV IQ / HDR10+，H5 播放器只能出 SDR |
-| 存储 | 64GB | **可用 43.8GB** | TV 端本地缓存 / 离线下载可行，可后置 |
+| 项 | 初版假设 | 截图校准 | **ADB 实测** | 对方案的影响 |
+|---|---|---|---|---|
+| 机型 | 鹤6 24款 | 鹤7 Pro 75R675C | `tcl_mt5879_cn` / `mt9952` / `MT9653-DMIC-4` | 平台同代，路线不变 |
+| WebView | 未知，概率「中」 | 猜 ≥90（V706 较新） | **Chromium 83.0.4103.120** | 猜测被推翻，须加兼容层（§5.5） |
+| ABI | arm64-v8a | — | **armeabi-v7a（32 位）** | APK 只能打 32 位，见 §4 |
+| CSS 视口 | 1920×1080 | — | **1280×720 @ dpr 1.5** | 版式全部重算（§6） |
+| 播放 | H5 可用 | 建议做 B 阶段 | WebView 内 HEVC 完全不支持 | B 阶段进一步坐实 |
 
-两点说明：
+**值得记下来的一次判断失误**：我看到固件是 `V706`（2026-01-22 构建），推断系统 WebView「大概率 ≥90」。实测是 **83**——厂商把 WebView 锁在系统分区，固件再新也不更新它。以后判断内核版本，只认 `dumpsys webviewupdate`，不从固件版本外推。
 
-- **机型更正不改变工作量**。75R675C 与鹤6 24款是同一代平台（MT9653 + Android 11），§3 的路线对比与 §7 的里程碑都能直接沿用。
-- **真正可能改变工作量的只有一项**：WebView 内核版本（§5.3）。它现在从「最大风险」降为「待验证项」，但没消失。
+好消息是：站点 JS 产物里**没有任何解析级不兼容语法**（`??=` / `&&=` / `||=` 全为 0），缺的都是可补的运行时 API 和 CSS 特性。所以路线 A 依然成立，只是多一层约半天的兼容工作。
 
 ---
 
-## 1. 目标设备事实（已由本机信息页确认）
+## 1. 目标设备事实（ADB 实测，非规格页推断）
 
 | 项 | 值 | 对方案的影响 |
 |---|---|---|
-| 机型 | **鹤7 Pro 75R675C**（电视名 `FF 75R675C-7A0A`，序列号 `630349991`） | 不是鹤6。2023 年 MiniLED 机型，平台与鹤6 24款同一代 |
-| 芯片 | MT9653（Pentonic 700），4×A73 + Mali-G52 MC1 | 固件平台码 `0012T11` 属 0012 平台族，与规格页标注的 MT9653 一致 |
-| 系统 | **Android 11**（AOSP，无 GMS、无 Play 商店） | 只能自签名侧载；也无法依赖 Google 的 WebView 更新通道 |
-| 固件 | `V8-0012T11-LF1V706.003371`（已是最新） | V706 属较新构建，WebView 不太可能是上古版本，但仍须实测 |
-| 内存 | 4GB | 跑 React SPA 够用；`hls.js` 仍会吃内存，海报预载要限制 |
-| 存储 | 64GB，**当前可用 43.8GB**（系统 4.7 / 应用 6.0 / 其他 9.5） | 空间充裕，后续做本地缓存或离线下载没有压力 |
-| 面板 | 75" 4K 3840×2160 · 144Hz · 360 分区 MiniLED · 1200nit · DV IQ / HDR10+ / IMAX Enhanced | 高刷与 HDR 是 B 阶段的额外理由，见 §5.4 |
-| 呈现 | 系统按 1920×1080 dp / density 2 输出 | WebView 视口按 1920×1080 CSS px 设计（原判断不变） |
-| ABI | arm64-v8a | 单一架构，好打 |
+| 机型 | **鹤7 Pro 75R675C**（电视名 `FF 75R675C-7A0A`，序列号 `630349991`） | 2023 年 MiniLED 机型，平台与鹤6 24款同一代 |
+| 芯片 | MT9653（`ro.board.platform=mt5879` / `ro.hardware=mt9952` / `persist.xfar.platform=MT9653-DMIC-4`） | 固件平台码 `0012T11` 属 0012 平台族 |
+| 系统 | **Android 11 / API 30**，`RQ3A.210705.001` | 只能自签名侧载；无 GMS、无 Play 商店 |
+| 固件 | `V8-0012T11-LF1V706.003371`，构建日期 `2026012200` | 系统很新，但 WebView 没跟着更新 |
+| **ABI** | **`armeabi-v7a` + `armeabi`（32 位用户态）** | **APK 必须打 32 位**；不要引入 arm64-only 的 .so |
+| **WebView** | **`com.android.webview` 83.0.4103.120**，且是唯一 provider | 落在 80–89 风险带，见 §5.3 / §5.5 |
+| 内存 | 4GB（系统 334MB / 桌面 380MB 常驻） | 跑 SPA 够用；`hls.js` 仍吃内存，海报预载要限制 |
+| 存储 | 64GB，**当前可用 43.8GB** | TV 端本地缓存 / 离线下载可行，可后置 |
+| 显示 | `wm size 1920×1080`、`wm density 240`、支持 50/60/100/120Hz | 系统层跑在 1080p，面板再上采样到 4K |
+| **CSS 视口** | **1280×720，`devicePixelRatio=1.5`** | 版式按 1280×720 设计，不是 1920×1080（§6） |
+| HDR | `HdrCapabilities [1,2,3,4]` = DV / HDR10 / HLG / HDR10+ 全支持 | 播放走原生解码才有意义（§5.4） |
 | 遥控器 | 蓝牙语音键 + 方向键、OK、返回 | 语音键走系统助手，**第三方 App 拿不到** |
+| 侧载环境 | 已装 Kodi、电视助手、QQ 音乐等 13+ 个三方包 | 说明这台机器装第三方 APK 没有额外门槛 |
 
 > 固件编号解读（TCL 命名规则）：`V8-<平台码>-LF1V<版本>.<内部构建号>`。
 > `0012T11` 属 0012 平台族（Pentonic 700 / MT9653），`LF1` 是国内区语言包，`V706` 是稳定版 OTA 版本号。
-> 这条信息不只是备忘 —— 后面判断 WebView 版本时，`V706` 这个量级意味着固件是 2025–2026 年的构建。
+> **但固件版本与 WebView 版本无关** —— 这条已由实测证伪，不要再据此推断。
+
+> 另一个坑：系统内置浏览器 `com.tcl.browser` 用的是同一个 WebView 83，却把 UA 伪造成
+> `Mozilla/5.0 (iPad; ... Version/5.0.2 Safari/6533.18.5#2.0#TCL/`。我们自己的 App 必须用
+> `WebSettings.setUserAgentString` 覆盖成正常 UA，否则站点会按「上古 iPad」降级。
 
 ### 安装路径（已核实）
 
@@ -97,7 +105,7 @@ HTTP 200   4021 bytes   0.79s
 - 播放：H5 播放器（iOS 版如实上报 `supportsNativePlayer: false` 后回落的那套）
 - 桥方法：16 个（`app.*` / `browser.*` / `download.*` / `playback.*` / `cast.*` / `shell.*`）
 
-**这条事实决定了最大的技术风险**：Vite 默认构建目标是 ES2020。如果电视的 WebView 内核低于 Chromium 80，`?.` 和 `??` 会直接语法报错，整站白屏——不是"难看"，是"打不开"。见 §5.3。
+**实测后的结论**：电视的 WebView 是 Chromium 83，`?.` / `??` 都支持，所以**不会白屏**。但我把站点 129 个 JS 文件（约 360 万字符）全扫了一遍，找到 3 个未保护的运行时 API 调用和一批 Chromium 83 不支持的 CSS 特性——这部分必须靠兼容层解决，见 §5.3 / §5.5。
 
 ---
 
@@ -114,7 +122,7 @@ HTTP 200   4021 bytes   0.79s
 
 **为什么 B 要拆成第二阶段**：A 阶段能验证的东西（能不能装、能不能显示、遥控器能不能走）不需要播放器。播放不满意再上 B，触发条件明确写下来：**1080p 播放掉帧、或 H5 播放条无法用遥控器操作、或需要 4K / HEVC / HDR**，出现任一条就进 B。
 
-> 这台电视是 360 分区 MiniLED + DV IQ / HDR10+ 面板，而 WebView 里的 `video` 只能出 SDR。也就是说**第三条触发条件在你这台机器上天然成立**——一旦你看过原生播放器的画面，H5 播放器会明显偏灰。B 阶段在这台设备上不是"以后再说"，而是"迟早要做"。
+> 这台电视是 360 分区 MiniLED + DV IQ / HDR10+ 面板，而 WebView 里的 `video` 只能出 SDR，且实测 **HEVC 完全不支持**。两条触发条件在你这台机器上天然成立。B 阶段不是"以后再说"，是"迟早要做"。
 
 ---
 
@@ -137,11 +145,14 @@ HTTP 200   4021 bytes   0.79s
 | `MainActivity.kt` | 宿主、生命周期、按键入口 | 240 |
 | `TvWebViewClient.kt` | 域名白名单、m3u8 拦截、错误页 | 150 |
 | `NativeBridge.kt` | 16 个方法路由 + 来源校验 | 320 |
+| **`TvCompat.kt`** | **documentStart 注入 polyfill + Chrome 83 CSS 基线（§5.5）** | **80** |
 | `TvFocusEngine.kt` | 注入 JS：候选集、最近邻、滚动、高亮 | 400 |
 | `TvSkin.kt` | TV 版式 CSS（16:9 重排）+ 深色层 | 450 |
 | `PlayerActivity.kt` | ExoPlayer + 遥控器播放条 | 320 |
 | `LocalInputServer.kt` | 二维码 + 输入回传 | 180 |
 | `ShellConfig.kt` | 线路、偏好、远程配置 | 120 |
+
+**构建约束**：`minSdk 21` / `targetSdk 30+`，只能打 `armeabi-v7a`。不要引入 arm64-only 的 `.so`（某些版本的 media3 decoder 扩展、X5 内核需要核对架构）。media3-exoplayer 主库是纯 Kotlin + 系统 MediaCodec，32 位可用。
 
 ### 与 iOS 版的复用关系
 
@@ -159,19 +170,25 @@ HTTP 200   4021 bytes   0.79s
 
 ### 桥的 Android 实现要点
 
-| | iOS | Android |
+| | iOS | Android（本机 WebView 83） |
 |---|---|---|
-| 上行 | `webkit.messageHandlers.nativeBridge.postMessage` | `WebViewCompat.postWebMessage`（WebView 88+）或 `@JavascriptInterface` |
+| 上行 | `webkit.messageHandlers.nativeBridge.postMessage` | **`@JavascriptInterface`**（`addWebMessageListener` 要 WebView 88+，本机不可用） |
 | 下行 | `evaluateJavaScript` | `evaluateJavascript` |
-| 来源校验 | `frameInfo.securityOrigin.host` | `WebMessageListener` 的 `sourceOrigin`；JS 接口方案需另配令牌 |
+| 来源校验 | `frameInfo.securityOrigin.host` | `shouldOverrideUrlLoading` 全域名拦截 + 一次性会话令牌 |
+| UA | 系统默认 | **必须覆盖**（系统浏览器伪造 iPad Safari 5.0.2，会让站点降级） |
 
-优先 `addWebMessageListener`（带 `allowedOriginRules`，天然做来源隔离）。只有内核 < 88 才退回 `addJavascriptInterface`——那时**必须**配合 `shouldOverrideUrlLoading` 的全域名拦截，因为 JS 接口对整个 WebView 的所有 frame 都是暴露的。
+`addWebMessageListener` 需要 WebView 88 以上，本机 83 只能走 JS 接口。而 `@JavascriptInterface` 对该 WebView 里**所有 frame** 都暴露，所以必须同时做两件事：
+
+1. `shouldOverrideUrlLoading` 拦掉白名单外的所有跳转（TV 版本来就没有任意 URL 入口，白名单固定）
+2. 每次页面加载由 `documentStart` 注入一个随机令牌，桥方法校验令牌后才执行
+
+这两条合起来才等价于 iOS 版 `securityOrigin.host` 那道校验。**不能只做其一。**
 
 **能力上报要改**：B 阶段实现 ExoPlayer 后，`supportsNativePlayer` 才能报 `true`。A 阶段仍然报 `false`，让站点走 H5 播放器——和 iOS 版同样的取舍。
 
 ---
 
-## 5. 四个硬问题
+## 5. 硬问题清单
 
 ### 5.1 遥控器焦点（真正的难点，占整体难度一半）
 
@@ -210,28 +227,42 @@ JS 侧三个要点：
 
 扫码方案：TV 显示二维码 → 手机打开 `http://<电视IP>:8080` → 输入 → WebSocket 回传 → 注入到站点搜索框并触发搜索。延迟目标 < 200ms。
 
-### 5.3 WebView 内核版本（唯一待验证项）
-
-**这是开工前必须先测的一条。** Vite 产物是 ES2020，内核低于 80 直接白屏。
-
-按截图信息乐观估计：Android 11 + 固件 `V706`（2025–2026 年的构建），系统内置 WebView 大概率在 Chromium 90 以上，落在「无忧」或「可用」两档。但 AOSP TV 的 WebView 是厂商预编译并锁在系统分区的，**猜测不能替代测量**——这一步只花 30 秒。
-
-测法：
+### 5.3 实测结果：Chromium 83（风险从「待验证」变为「已确认」）
 
 ```
-adb shell dumpsys webviewupdate | grep "Current WebView package"
-adb shell getprop ro.build.version.release
-adb shell wm size; adb shell wm density
+adb shell dumpsys webviewupdate
+  Current WebView package (name, version): (com.android.webview, 83.0.4103.120)
+  WebView packages: 只有一个，Fallback logic enabled: false
 ```
 
-| 内核版本 | 判定 | 应对 |
+落在原先判定的 **80–89 风险带**。复测工具已沉淀为 `tools/tv-webview-probe.py`，完整数据见 `docs/tv-webview-capabilities.json`。
+
+**JS 侧（好消息）**：站点全部 10 个初始 JS（101 万字符）+ 119 个懒加载分片（259 万字符）里，`??=` / `&&=` / `||=` 这类**解析级不兼容语法为 0**。也就是说不会出现「整站白屏」。缺的是运行时 API，且站点自己已经给 `WeakRef` / `AggregateError` / `AbortSignal.timeout` / `Array.findLast` 写了保护或 polyfill。
+
+真正没有保护、会实际抛错的只有三处：
+
+| API | 站点调用 | 出现位置 |
 |---|---|---|
-| ≥ 90 | ✅ 无忧 | 直接做 |
-| 80–89 | ⚠️ 可用 | 关掉站点用不到的新 API，别用 `ResizeObserver` |
-| 66–79 | ⚠️ 危险 | 白屏风险高，先试装 Google WebView 或 X5 内核 |
-| < 66 | ✗ 不可行 | 转 C 路线或换设备 |
+| `Array.prototype.at` | 6 处 | **首页追剧日历、首页地址提示、播放器分组** |
+| `String.prototype.replaceAll` | 1 处 | 原生播放器 surface 目录 |
+| `crypto.randomUUID` | 1 处无保护调用 | 影片卡的会话 ID |
 
-AOSP TV 的 WebView 是厂商预编译的（`com.android.webview`），不走 Google 更新通道。所以这一条不能靠"猜"，必须实测。缓解手段依次是：`cmd webviewupdate set-webview-implementation` 指定新内核 → 装 Google WebView APK → X5 内核 → 放弃 WebView 路线。
+这三个各写几行 polyfill 就够了，见 §5.5。
+
+**CSS 侧（真正的麻烦）**：Chromium 83 缺一批现代布局特性，而站点自己的 492KB CSS 大量依赖它们。
+
+| 特性 | Chrome 83 | 站点 CSS 使用次数 | 后果 |
+|---|---|---|---|
+| flex `gap` | ✗（84 才支持） | `gap:` 88 处 | flex 容器子元素贴在一起 |
+| `aspect-ratio` | ✗（88） | 25 处 | 海报卡高度塌陷 |
+| `:has()` | ✗（105） | 20 处 | 条件样式整条被忽略 |
+| `:focus-visible` | ✗（86） | 74 处 | 站点自身焦点样式失效 |
+| `inset` | ✗（87） | 4 处 | 定位偏移失效 |
+| `clamp()` / `backdrop-filter` / grid gap / `object-position` | ✓ | — | 可用 |
+
+实测 flex gap 的判据不是查文档：放了 `gap:10px` 的 flex 容器，第二个子元素 `offsetLeft=10`（支持应为 20）。
+
+**结论**：路线 A 依然成立，但不能裸跑。需要 §5.5 的兼容层；另一个更彻底的选择是升级系统 WebView（见 §5.6），那是系统级改动，须单独拍板。
 
 ### 5.4 播放
 
@@ -257,20 +288,87 @@ WebViewClient.shouldInterceptRequest
 
 播放条按电视习惯做：左右 = 快退/快进 10s，OK = 暂停，返回 = 退出，上下 = 选集。**不要做成触摸式的进度条拖拽。**
 
+补充一条实测证据：`MediaSource.isTypeSupported('video/mp4; codecs="hev1..."') = false`、`video.canPlayType('hevc') = ""`，而 `h264 = "probably"`。也就是说 **WebView 里根本播不了 HEVC**。如果站点后续上 HEVC 片源，H5 播放器会直接失效——这是 B 阶段除 HDR 之外的第二个硬理由。
+
+### 5.5 兼容层（路线 A 的必做项，约半天）
+
+在 `documentStart` 注入，先于站点任何脚本执行。两件事：
+
+**① 运行时 polyfill**（只需 3 个，其余站点已自补或没用到）
+
+```js
+// Array.prototype.at —— 首页追剧日历会用到 arr.at(-1)
+if (!Array.prototype.at) Object.defineProperty(Array.prototype, 'at', {
+  value: function (n) { n = Math.trunc(n) || 0; if (n < 0) n += this.length;
+    return (n >= 0 && n < this.length) ? this[n] : undefined; }, writable: true, configurable: true
+});
+// String.prototype.replaceAll
+if (!String.prototype.replaceAll) String.prototype.replaceAll = function (a, b) {
+  return String(this).split(a).join(b);
+};
+// crypto.randomUUID（Chrome 92 才有）
+if (window.crypto && !crypto.randomUUID) crypto.randomUUID = function () {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+    var r = crypto.getRandomValues(new Uint8Array(1))[0] & 15;
+    return (c === 'x' ? r : (r & 3 | 8)).toString(16);
+  });
+};
+```
+
+不要把 `WeakRef` / `FinalizationRegistry` / `structuredClone` 也随手补上——站点对前两个有 `typeof` 保护，后一个根本没用，多补反而可能改变库的特征检测分支。
+
+**② TV 皮肤 CSS 按 Chrome 83 基线写**
+
+这套皮肤本来就要重写（§6），所以「写成 83 兼容」只是约束，不是额外工作：
+
+| 不要用 | 改用 |
+|---|---|
+| flex `gap` | 子元素 `margin`，或改用 CSS Grid（grid gap 是支持的） |
+| `aspect-ratio` | 显式 `height` / `padding-bottom` 百分比 |
+| `:has()` | `sync()` 里用 JS 打 `data-*` 类，CSS 再选中 |
+| `:focus-visible` | 普通 `:focus` + JS 维护的 `.tv-focused` 类 |
+| `inset` | 展开成 `top/right/bottom/left` |
+| `content-visibility` | 直接不用 |
+
+站点自身 CSS 里那些失效的 `gap` / `aspect-ratio`，靠 TV 皮肤对关键容器（海报卡、卡片网格、首屏横幅）显式覆盖即可，不必逐条修补 492KB。
+
+### 5.6 是否升级系统 WebView（需要你拍板）
+
+上面这套兼容层能解决**当前**站点，但站点以后重新构建、把 target 提到 Chrome 87+，就可能出现 `??=` 这类解析级语法，polyfill 补不了（脚本根本加载不了）。
+
+彻底解法是给电视装一个新 WebView provider：
+
+```
+adb install com.google.android.webview-<arm32>.apk
+adb shell cmd webviewupdate set-webview-implementation com.google.android.webview
+```
+
+- 优点：一劳永逸，站点改版不用跟着打补丁
+- 风险：**这是系统级改动**，会影响电视上所有用 WebView 的 App；需要找匹配 `armeabi-v7a` + API 30 的 APK 版本；失败可用 `set-webview-implementation com.android.webview` 回退
+- 代价：约半天验证，且要确认厂商是否放行用户安装的 provider
+
+我的建议是**先不做**：兼容层成本更低、不动系统、随时可迭代。等真正遇到站点改版再说。但这一步要不要走，由你决定。
+
 ---
 
 ## 6. 16:9 版式改造
 
 现有 iOS 皮肤是手机竖屏的版式（底部 tab、单列卡片）。电视要重做，但**结构复用**——还是按 BEM 类名重排，套路一样。
 
-| 项 | iOS（竖屏） | TV（1920×1080） |
+| 项 | iOS（竖屏） | TV（**1280×720 CSS px @ dpr 1.5**） |
 |---|---|---|
 | 导航 | 底部 tab | 顶部横向，或左侧竖栏（推荐左侧，横向滚动更省） |
-| 海报网格 | 2–3 列 | **6 列**（每张 260px 宽，间距 24px） |
-| 今晚首选卡 | 1.42:1 竖版 | 16:9 横幅，占满首屏上半 |
-| 最小字号 | 13px | **32 CSS px**（≈24sp，2.5m 观看距离可读） |
-| 焦点态 | 无 | 2px 描边 + 1.06 缩放 |
+| 海报网格 | 2–3 列 | **6 列**（每张约 185 CSS px ≈ 278 物理 px，间距 12 CSS px） |
+| 今晚首选卡 | 1.42:1 竖版 | 16:9 横幅，约 1140×270 CSS px |
+| 最小字号 | 13px | **24 CSS px**（≈36 物理 px，2.5m 观看距离可读） |
+| 焦点态 | 无 | 2px 描边 + 1.06 缩放，用 `:focus` 而非 `:focus-visible` |
 | 默认皮肤 | 深色 | 深色（电视环境光暗，不做浅色也无妨） |
+
+**数值为什么变了**：`wm size 1920×1080` 是物理像素，`wm density 240` 意味着 1 CSS px = 1.5 物理 px，实测 `innerWidth=1280 / innerHeight=720 / dpr=1.5`。所以坐标系是 1280×720，之前写的 1920×1080 是物理值，用来排版会做出偏小一半的界面。
+
+字号同理：24 CSS px 在这个 density 下已经是 36 物理像素，比初版写的 32 CSS px 更合理（32 会大到一屏放不下几张卡）。
+
+排布约束见 §5.5：**不要用 flex gap、aspect-ratio、`:has()`、`:focus-visible`、`inset`**，这些在 Chromium 83 上全部无效。
 
 深色层可以基本照搬现有的 `soujuDarkLayerCSS` 思路，只是色值映射表要按 TV 版式重算一遍。
 
@@ -280,36 +378,42 @@ WebViewClient.shouldInterceptRequest
 
 | 阶段 | 交付 | 估时 | 验收标准 |
 |---|---|---|---|
-| 0 | 环境（JDK17 + cmdline-tools + platform-tools），空壳装进电视 | 0.5 天 | 桌面能看到图标并启动 |
+| 0 | JDK17 + cmdline-tools + platform-tools，空壳装进电视 | 0.5 天 | 桌面能看到图标并启动 |
+| **0.5** | **兼容层（polyfill + Chrome 83 CSS 基线）** | **0.5 天** | 站点首页完整渲染，无 `at is not a function` |
 | 1 | WebView 壳 + 桥 + 线路 failover | 2 天 | 首页能显示，桥日志有 `bridge-ok` |
-| 2 | **遥控器焦点引擎** | 2–3 天 | 首页 6 列海报可用方向键遍历，无斜跳、无抖动 |
-| 3 | TV 版式皮肤 | 2–3 天 | 16:9 下无横向滚动条，字能看清 |
+| 2 | **遥控器焦点引擎** | 2–3 天 | 6 列海报可用方向键遍历，无斜跳、无抖动 |
+| 3 | TV 版式皮肤（1280×720 坐标系） | 2–3 天 | 无横向滚动条，字能看清 |
 | 4 | 手机扫码输入 | 1 天 | 手机输入后 TV 200ms 内出结果 |
-| 5 | ExoPlayer 播放（可选） | 2–3 天 | 1080p 硬解，遥控器可控播放条 |
+| 5 | ExoPlayer 播放 | 2–3 天 | 1080p 硬解，遥控器可控播放条 |
 
-合计约 **8–12 个工作日**，业余节奏 2–3 周。
+合计约 **9–13 个工作日**（比初版多半天的兼容层），业余节奏 2–3 周。
 
 ---
 
-## 8. 开工前要准备的
+## 8. 环境已就绪，取证已完成
 
-型号已确认（鹤7 Pro 75R675C），剩下的两件事在你这边：
+| 事项 | 状态 |
+|---|---|
+| 型号确认（鹤7 Pro 75R675C） | ✅ |
+| 电视 ADB 开关 + RSA 授权 | ✅ |
+| Mac 装 `android-platform-tools` | ✅ `adb 1.0.41 / 37.0.1`，符号链接在 `/usr/local/bin/adb` |
+| 电视 IP | ✅ `Android.local` → `192.168.0.4:5555`，mDNS 自动发现 |
+| 设备 / WebView / 视口取证 | ✅ `tools/probe-tv.sh` |
+| WebView 能力边界实测 | ✅ `tools/tv-webview-probe.py` → `docs/tv-webview-capabilities.json` |
 
-1. **开启 ADB 并记下电视 IP**（路径见 §1：本机信息页 → 遥控器按 `上 下 左 右`，弹出 ADB 开关）
-2. **允许我在 Mac 上装 `android-platform-tools`**（约 10MB，只为拿到 `adb`）
-
-拿到 ADB 后，六条命令即可给出全部关键参数：
+有用的两条命令留档：
 
 ```bash
-adb connect <IP>:5555
-adb shell getprop ro.product.model          # 应返回 75R675C
-adb shell getprop ro.build.version.release  # 应返回 11
-adb shell dumpsys webviewupdate | grep -i "current webview package"
-adb shell wm size; adb shell wm density     # 期望 3840x2160 / 320
-adb shell dumpsys meminfo | head -5
+# 无需手工查 IP：mDNS 发现
+dns-sd -B _adb._tcp local.
+dns-sd -L <实例名> _adb._tcp local.        # → Android.local.:5555
+dscacheutil -q host -a name Android.local  # → 192.168.0.4
+
+# 重跑能力探针（会唤醒电视并强停自带浏览器，30 秒出结果）
+python3 tools/tv-webview-probe.py --save /tmp/probe.json
 ```
 
-第四条（WebView 内核）是唯一还没落地的判断依据。`wm density` 若返回 320，即证实系统按 1920×1080 dp 输出，§6 的版式参数不用改。
+下一步只剩**搭工程**：装 JDK 17 + Android cmdline-tools，打出 32 位空壳 APK，走一次 `adb install -r -g` 验证安装链路（`settings get global verifier_verify_adb_installs` 当前为 `null`，装不装得进还没实测）。
 
 ---
 
@@ -317,16 +421,21 @@ adb shell dumpsys meminfo | head -5
 
 | 风险 | 概率 | 影响 | 缓解 |
 |---|---|---|---|
-| WebView 内核过低导致白屏 | **低–中**（原判「中」，固件 V706 后下调） | 路线 A 直接失效 | 先实测；备选 Google WebView / X5 |
+| **Chromium 83 缺运行时 API / CSS 特性** | **已确认发生** | 首页报错、版式塌陷 | §5.5 兼容层（约半天），已列出精确清单 |
+| **站点未来改版用上 Chrome 85+ 语法** | 中 | 解析级白屏，polyfill 补不了 | §5.6 升级系统 WebView；或保留远程注入 CSS/JS 通道做应急 |
 | 遥控器焦点手感差，做不出"顺" | 中高 | 可用性受损 | 焦点引擎是独立模块，可单独打磨与回归 |
 | 站点域名轮换导致线路失效 | 高（已知） | App 打不开 | 远程配置下发线路，不必重装 |
-| 电视厂商限制第三方安装 | 低 | 装不上 | ADB 关闭安装校验；U 盘兜底 |
+| `adb install` 被安装校验拦截 | 未知（两个 verifier 开关均为 `null`） | 装不上 | 两条 `settings put global`；U 盘兜底 |
+| 32 位 ABI 导致某个依赖装不上 | 中 | 编译/运行时失败 | 只打 `armeabi-v7a`；核对所有 `.so` 架构 |
 | 杜比视界未必对三方 App 开放 | 中 | B 阶段只能拿到 HDR10/HLG | 实测；不承诺 DV，UI 上不标 DV 角标 |
-| 4GB 内存跑 SPA + hls.js 吃紧 | 低–中（鹤7 Pro 4GB + 43.8GB 余量） | 卡顿/被系统杀 | 限制同时预载海报数；必要时 B 阶段把播放挪出 WebView |
+| WebView 内 HEVC 不支持 | 已确认 | HEVC 片源播不了 | B 阶段 ExoPlayer 走 MediaCodec |
+| 4GB 内存跑 SPA + hls.js 吃紧 | 低–中 | 卡顿/被系统杀 | 限制海报预载数；B 阶段把播放挪出 WebView |
 | 语音键不可用 | 确定 | 少一个输入入口 | 用手机扫码输入替代 |
 
 ---
 
 ## 10. 一句话建议
 
-先只做 **0 + 1 + 2** 三个阶段（约 5 天），把"能装、能看、遥控器能走"验证掉。这三步过了，剩下都是体力活；过不了，越早发现越省事。
+先做 **0 + 0.5 + 1 + 2**（约 5.5 天）：把「能装、能看（含兼容层）、遥控器能走」验证掉。这三件事过了，剩下都是体力活；过不了，越早发现越省事。
+
+开工前唯一需要你拍板的是 **§5.6：要不要动系统 WebView**。不动的话，我按兼容层方案直接开始搭工程。
