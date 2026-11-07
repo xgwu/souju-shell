@@ -232,12 +232,23 @@ html[data-tv-skin="on"] .movie-home-prompt-groups {
    为了把 6 张海报的第一行留在首屏，三块都要压瘦（见第 6/7/9 节）。
    data-tv-* 由 tv-skin.js 打在 .movie-page-body > div 的直接子元素上，
    保证 order 在同一个 flex 容器里比较。 */
-html[data-tv-skin="on"] [data-tv-tonight] { order: 0 !important; }
 html[data-tv-skin="on"] [data-tv-resume] { order: 1 !important; }
-html[data-tv-skin="on"] [data-tv-late] { order: 2 !important; }
 html[data-tv-skin="on"] [data-tv-feed] { order: 3 !important; }
 /* 「继续下滑，或点击加载更多」：保留（站点靠它触发无限滚动），但排到最后 */
 html[data-tv-skin="on"] [data-tv-tail] { order: 4 !important; }
+
+/* ── 阶段 8（2026-11-07 18:20）：首屏只要「继续观看 + 海报墙」 ──────
+   用户决定把「今晚首选」和「本周追剧」从首屏拿掉：
+     · 今晚首选是站点第一张 feed 卡的复刻，海报墙里本来就有，属重复信息；
+     · 追剧周表挪进顶部菜单「追剧」（/updates 整页），首屏不必留 118px 日期条。
+   两块一起 display:none —— 连宿主容器（含被隐藏的热词组）一起收掉，
+   首屏因此多出 244px 给海报墙，第一行能完整露出。 */
+html[data-tv-skin="on"] [data-tv-tonight],
+html[data-tv-skin="on"] [data-tv-tonight-host],
+html[data-tv-skin="on"] [data-tv-late],
+html[data-tv-skin="on"] .tv-ph-late {
+  display: none !important;
+}
 /* 今晚首选卡的宿主容器：站点给了 pt-4/md:pt-6（24px）和 gap-3（12px），
    电视首屏每一像素都要省，且热词组已被隐藏，这两个间距纯属浪费。
    min-height 是给「卡还没插进去」的那 1 秒预留位置：否则海报墙会先上去
@@ -454,7 +465,11 @@ html[data-tv-skin="on"] .movie-resume-rail {
 }
 html[data-tv-skin="on"] .movie-resume-list {
   display: grid !important;
-  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  /* 阶段 8：首屏没有今晚首选/周表之后，「继续观看」成了第一块。
+     站点的观看记录条数会变（实测 4~6 条），固定 4 列时第 5 条会掉到第二行，
+     右边留一大片空白。改成 5 列 + 只露前 5 条（其余用右上「查看更多」），
+     保证永远是整整一行。 */
+  grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
   grid-gap: 12px !important;
   width: 100% !important;
   max-width: none !important;
@@ -462,6 +477,9 @@ html[data-tv-skin="on"] .movie-resume-list {
   overflow: visible !important;
   padding: 0 !important;
   margin: 0 !important;
+}
+html[data-tv-skin="on"] .movie-resume-list > *:nth-child(n+6) {
+  display: none !important;
 }
 html[data-tv-skin="on"] .movie-resume-card,
 html[data-tv-skin="on"] .movie-resume-link {
@@ -982,4 +1000,266 @@ html[data-tv-skin="on"] .tv-login-status {
 html[data-tv-skin="on"] *::-webkit-scrollbar {
   width: 0 !important;
   height: 0 !important;
+}
+
+/* ══ 阶段 8：追剧周表页（/updates） ══════════════════════════════
+   从顶部菜单「追剧」进来的整页周表。站点这页是给桌面浏览器做的：
+   字号 13~16px、3 列 389px 横卡、中间还塞了一条 12 个图标的广告带
+   （全部指向境外博彩域名，实测在电视上就是一片花）。
+   这里做四件事：砍广告、放大字号、抬卡片高度、给页内滚动容器留安全边距。 */
+html[data-tv-page="updates"] .movie-content-grid-ad,
+html[data-tv-page="updates"] .movie-player-info-ad-grid,
+html[data-tv-page="updates"] [class*="ad-grid"],
+html[data-tv-page="updates"] [class*="ad-grid-heading"] {
+  display: none !important;
+}
+
+/* 页头「11月2日 - 11月8日」 */
+html[data-tv-page="updates"] .watch-calendar-page-meta,
+html[data-tv-page="updates"] .watch-calendar-page-meta * {
+  font-size: 20px !important;
+  line-height: 1.4 !important;
+}
+
+/* 上一周 / 日期 / 下一周 / 本周 这一排控件：桌面版只有 42px 高 */
+html[data-tv-page="updates"] .watch-calendar-date-actions button,
+html[data-tv-page="updates"] .watch-calendar-date-actions select,
+html[data-tv-page="updates"] .watch-calendar-date-actions [role="button"],
+html[data-tv-page="updates"] .watch-calendar-date-actions > * > button {
+  min-height: 52px !important;
+  height: 52px !important;
+  font-size: 21px !important;
+  padding: 0 18px !important;
+  border-radius: 10px !important;
+}
+html[data-tv-page="updates"] .watch-calendar-date-controls {
+  height: auto !important;
+  margin-bottom: 10px !important;
+}
+
+/* 7 天日期条：和首页那张同样高 62，字 19/17 */
+html[data-tv-page="updates"] .watch-calendar-page-days {
+  height: auto !important;
+  grid-gap: 10px !important;
+}
+html[data-tv-page="updates"] .watch-calendar-page-day {
+  min-height: 72px !important;
+  padding: 8px 6px !important;
+  border-radius: 10px !important;
+}
+html[data-tv-page="updates"] .watch-calendar-page-day * {
+  font-size: 19px !important;
+  line-height: 1.2 !important;
+}
+
+/* 「周六 11月7日 / 66 部」+ 四个分类 tab */
+html[data-tv-page="updates"] .watch-calendar-page-selected-heading,
+html[data-tv-page="updates"] .watch-calendar-page-selected-heading * {
+  font-size: 24px !important;
+}
+html[data-tv-page="updates"] .watch-calendar-kind-tabs {
+  height: 56px !important;
+  margin: 6px 0 10px !important;
+}
+html[data-tv-page="updates"] .watch-calendar-kind-tabs * {
+  font-size: 22px !important;
+}
+
+/* 剧集横卡：389×130 在 3 列网格里，标题只有 16px，电视上完全看不清。
+   抬到 148 高，标题 23px、副信息 17px。 */
+html[data-tv-page="updates"] .watch-calendar-page-item-link {
+  height: 148px !important;
+  border-radius: 12px !important;
+}
+html[data-tv-page="updates"] .watch-calendar-page-item-copy h3 {
+  font-size: 23px !important;
+  line-height: 1.25 !important;
+}
+html[data-tv-page="updates"] .calendar-card-meta span,
+html[data-tv-page="updates"] .calendar-card-meta * {
+  font-size: 16px !important;
+}
+html[data-tv-page="updates"] .calendar-card-update {
+  font-size: 17px !important;
+}
+html[data-tv-page="updates"] .calendar-card-footer,
+html[data-tv-page="updates"] .calendar-card-footer * {
+  font-size: 16px !important;
+}
+
+/* 页内滚动容器自己滚（实测容器就是 .watch-calendar-page-content），
+   给它底部留 24px，最后一排卡片放大后不会被裁。 */
+html[data-tv-page="updates"] .watch-calendar-page-content {
+  padding-bottom: 24px !important;
+}
+
+/* ══ 阶段 8：追剧周表页（/updates） ══════════════════════════════
+   从顶部菜单「追剧」进来的整页周表。站点这页是给桌面浏览器做的：
+   字号 13~16px、3 列 389px 横卡、中间还塞了一条 12 个图标的广告带
+   （全部指向境外博彩域名，实测在电视上就是一片花）。
+   这里做四件事：砍广告、放大字号、抬卡片高度、给页内滚动容器留安全边距。 */
+html[data-tv-page="updates"] .movie-content-grid-ad,
+html[data-tv-page="updates"] .movie-player-info-ad-grid,
+html[data-tv-page="updates"] [class*="ad-grid"],
+html[data-tv-page="updates"] [class*="ad-grid-heading"] {
+  display: none !important;
+}
+
+/* 页头「11月2日 - 11月8日」 */
+html[data-tv-page="updates"] .watch-calendar-page-meta,
+html[data-tv-page="updates"] .watch-calendar-page-meta * {
+  font-size: 20px !important;
+  line-height: 1.4 !important;
+}
+
+/* 上一周 / 日期 / 下一周 / 本周 这一排控件：桌面版只有 42px 高 */
+html[data-tv-page="updates"] .watch-calendar-date-actions button,
+html[data-tv-page="updates"] .watch-calendar-date-actions select,
+html[data-tv-page="updates"] .watch-calendar-date-actions [role="button"],
+html[data-tv-page="updates"] .watch-calendar-date-actions > * > button {
+  min-height: 52px !important;
+  height: 52px !important;
+  font-size: 21px !important;
+  padding: 0 18px !important;
+  border-radius: 10px !important;
+}
+html[data-tv-page="updates"] .watch-calendar-date-controls {
+  height: auto !important;
+  margin-bottom: 10px !important;
+}
+
+/* 7 天日期条：和首页那张同样高 62，字 19/17 */
+html[data-tv-page="updates"] .watch-calendar-page-days {
+  height: auto !important;
+  grid-gap: 10px !important;
+}
+html[data-tv-page="updates"] .watch-calendar-page-day {
+  min-height: 72px !important;
+  padding: 8px 6px !important;
+  border-radius: 10px !important;
+}
+html[data-tv-page="updates"] .watch-calendar-page-day * {
+  font-size: 19px !important;
+  line-height: 1.2 !important;
+}
+
+/* 「周六 11月7日 / 66 部」+ 四个分类 tab */
+html[data-tv-page="updates"] .watch-calendar-page-selected-heading,
+html[data-tv-page="updates"] .watch-calendar-page-selected-heading * {
+  font-size: 24px !important;
+}
+html[data-tv-page="updates"] .watch-calendar-kind-tabs {
+  height: 56px !important;
+  margin: 6px 0 10px !important;
+}
+html[data-tv-page="updates"] .watch-calendar-kind-tabs * {
+  font-size: 22px !important;
+}
+
+/* 剧集横卡：389×130 在 3 列网格里，标题只有 16px，电视上完全看不清。
+   抬到 148 高，标题 23px、副信息 17px。 */
+html[data-tv-page="updates"] .watch-calendar-page-item-link {
+  height: 148px !important;
+  border-radius: 12px !important;
+}
+html[data-tv-page="updates"] .watch-calendar-page-item-copy h3 {
+  font-size: 23px !important;
+  line-height: 1.25 !important;
+}
+html[data-tv-page="updates"] .calendar-card-meta span,
+html[data-tv-page="updates"] .calendar-card-meta * {
+  font-size: 16px !important;
+}
+html[data-tv-page="updates"] .calendar-card-update {
+  font-size: 17px !important;
+}
+html[data-tv-page="updates"] .calendar-card-footer,
+html[data-tv-page="updates"] .calendar-card-footer * {
+  font-size: 16px !important;
+}
+
+/* 页内滚动容器自己滚（实测容器就是 .watch-calendar-page-content），
+   给它底部留 24px，最后一排卡片放大后不会被裁。 */
+html[data-tv-page="updates"] .watch-calendar-page-content {
+  padding-bottom: 24px !important;
+}
+
+/* ══ 阶段 8：直通播放的「起播遮罩」 ═════════════════════════════
+   点海报到原生播放器起播之间，站点还在详情页里解析线路（实测 8~12 秒，
+   偶尔 502 重试更久）。这段时间不能把一个信息量爆炸的详情页甩给用户，
+   所以盖一张「海报模糊背景 + 片名 + 进度条」的全屏页，和 Apple TV 的
+   起播观感一致。Chrome 83 没有 inset，四边分开写。 */
+.tv-dp {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  /* 站点详情页自己的起播等待层是 z-index:2147483000（react-player-frame 里的
+     line-loading 遮罩），90 会被整块盖住 —— 实测用户看到的是站点那句
+     「精彩即将开始」，我们的海报遮罩等于不存在。必须压到它上面。 */
+  z-index: 2147483002;
+  background: #0E0E10;
+  overflow: hidden;
+}
+.tv-dp-bg {
+  position: absolute;
+  top: -6%; left: -6%; right: -6%; bottom: -6%;
+  background-position: center;
+  background-size: cover;
+  background-repeat: no-repeat;
+  /* 刻意不用 filter: blur()：这块是全屏元素，MT9653 上「一张大图 + 30px 模糊
+     每帧重栅格化」会把主线程和 GPU 一起拖死 —— 实测它会显著拖延遮罩下正在
+     解析的详情页（视频元素从 11 秒拖到 30 秒以上）。改用「放大 + 压暗」
+     拿到同样的氛围，成本接近零。 */
+  opacity: 0.55;
+  transform: scale(1.08);
+}
+.tv-dp-shade {
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: radial-gradient(ellipse at center, rgba(14,14,16,0.25) 0%, rgba(14,14,16,0.86) 78%);
+}
+.tv-dp-copy {
+  position: absolute;
+  left: 0; right: 0; bottom: 148px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.tv-dp-title {
+  font-size: 44px;
+  line-height: 1.2;
+  font-weight: 600;
+  color: #F2F1ED;
+  letter-spacing: 1px;
+  text-shadow: 0 6px 24px rgba(0,0,0,0.6);
+  max-width: 1000px;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tv-dp-hint {
+  margin-top: 14px;
+  font-size: 21px;
+  color: #A9A6A0;
+  letter-spacing: 1px;
+}
+.tv-dp-bar {
+  margin-top: 22px;
+  width: 260px;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255,255,255,0.14);
+  overflow: hidden;
+}
+.tv-dp-bar i {
+  display: block;
+  height: 100%;
+  width: 38%;
+  border-radius: 2px;
+  background: #FF6B42;
+  animation: tvdpSlide 1.15s ease-in-out infinite;
+}
+@keyframes tvdpSlide {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(320%); }
 }

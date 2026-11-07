@@ -233,6 +233,54 @@ console 取不到、现场只能靠截图；`visibilitychange` 补一次 `tick()
 
 > 日历里「今天」那格（周六）的橙色描边是**站点自己的语义样式**（`border-color: rgb(255,107,66)`，类名不变、按日期算出），刻意保留。
 
+### 0.8 阶段 8 首屏取舍 / 追剧菜单 / 直通播放（2026-11-07 18:55 实机）
+
+版本 `0.8.0` / build 9 / 368KB APK。三条需求逐条落地：
+
+| # | 需求（原话） | 改法 | 实机结果 |
+|---|---|---|---|
+| 1 | 把「今晚首选」「本周追剧」从首屏去掉 | CSS 把 `[data-tv-tonight]` / `[data-tv-tonight-host]` / `[data-tv-late]` / `.tv-ph-late` 一起 `display:none`；JS 侧 `SHOW_TONIGHT=false`、`PH_KEYS=['resume']`（占位也只留继续观看）；继续观看改 5 列、只露前 5 条 | 首屏 = 导航 66 → 继续观看（5 卡一行，y≈106~242）→「大家都在看」标题 y≈265 → 海报第一行 y≈296，**完整露出两行海报**（`docs/tv-stage8-home.png`） |
+| 2 | 主菜单「首页」后面加一个「追剧」，点进去是完整周表 | `tv-skin.js` 新增 `navExtra()`：往 `nav.app-primary-nav-desktop` 里插一个 `.tv-nav-updates`，`href=/updates`；点击走 `history.pushState` + `dispatchEvent(new PopStateEvent('popstate'))`，**不让它整文档加载**（实测 `PAGE_START` 计数 0，站点自己的路由接手）。页内样式全套 `html[data-tv-page="updates"]` | 两条线（`hctd4.com` / `souju.ai`）菜单均为「首页,追剧,短剧,历史,片单」；追剧页广告块消失、卡片 148px / 标题 23px / meta 16px、3 列 389px，滚动容器 `.watch-calendar-page-content`（`scrollHeight 1693 / clientHeight 574`）由焦点引擎 `reveal()` 沿父链自动接管（`docs/tv-stage8-updates.png`） |
+| 3 | 点海报直接进沉浸式全屏播放器，不要经过详情页 | `tv-overlay.js` 新增「直通播放」：点海报时记 `{t,title,poster}` 进 `sessionStorage`、盖一层全屏起播遮罩，站点照常 SPA 进详情页（跑在遮罩下面，用户看不见）；一旦 `currentMedia()` 拿到可播地址立刻交给原生播放器全屏起播；退出播放器时 `history.back()` 回首页 | `TVDP_START waitedMs=25768` → `PLAYER_OPEN` → `PLAYING duration=2782302`；退出后 `TVPROGRESS {synced:16}` 再自动回 `/`（`docs/tv-stage8-directplay.png`） |
+
+**四条与判断相关的实测**（都是先踩坑后量出来的，不是猜的）：
+
+1. **详情页天然就慢，不是皮肤拖慢的**：点海报到 `<video>` 元素出现 11~14 秒，到 `readyState>=1` 20~27 秒。关掉皮肤（`--es skin off`）实测 14 / 27 秒 —— 同一量级，所以「优化详情页」这条路不成立，只能绕开。
+2. **全屏 `filter: blur(30px)` 在这台机器上是负优化**：遮罩一加模糊，下层正在解析的详情页被拖死，`<video>` 从 11 秒推到 30 秒以上（每帧重栅格化一张全屏大图）。改成 `opacity:0.55 + transform:scale(1.08)` 拿到同样的观感，代价接近零。
+3. **站点把整部 mp4 伪装成 `.image`**：直链形如 `…~tplv-xxx-image.image`（或 `.jpg`），CDN 谎报 `image/*`，实际字节是 `ftyp isom`、支持 Range。所以判据只能是 `video.duration > 0`，按扩展名过滤会把真直链当封面图跳过（第一版就是因此一直等到超时）。
+4. **站点是 SPA，`history.pushState` + 手动派发 `PopStateEvent` 就能换页**：整文档加载（`PAGE_START`）不触发，导航不闪白，这也是「追剧」菜单能做到无缝的直接原因。
+
+**直通播放踩的四个坑**（实机复现 → 定位 → 修法）：
+
+| 现象 | 根因（实测证据） | 改法 |
+|---|---|---|
+| 遮罩期间看到的是站点那句「精彩即将开始」，我们的海报遮罩等于不存在 | `document.elementFromPoint()` 链上最顶层是 `line-loading--parse … z-index: 2147483000`，我们的 `.tv-dp` 只有 `z-index: 90` | `.tv-dp` 提到 `z-index: 2147483002`；顺手删掉 `tv-skin.css` 里被重复粘贴的一整份遮罩样式（两个 `.tv-dp {}` 块，`z-index` 都还是 90） |
+| 同一会话里第二次点海报不生效，直接落到普通详情页 | `dpStarted` 只在 `dpBegin` 里复位，一轮播完后永远停在 `true`，把后续点击全吃掉（`__tvDirectPlayState()` 返回 `started:true, session:false`） | 新增 `dpReset()`：回首页且不在播放会话时复位；`__tvPlaybackReturn` 收尾时也把 `dpStarted/dpRevealed` 清掉 |
+| 点的是《尚公主》，播放器的地址却是上一部片（`20261102/22082_565930aa`） | SPA 换页后 `<video>` 里残留上一部片的地址且 `duration` 依然 `>0`，`currentMedia()` 直接认定可播 | 两道新鲜度闸门：① `mediaSeq`（`recordMedia` 每次被调用 +1，必须比点之前大，即「这一轮真发过媒体请求」）；② 元素和地址不能还是点海报那一刻的那一对 |
+| 按了返回、人已经回到首页，播放器 93ms 后又自己弹出来 | 详情页解析把主线程占满，BACK 被排队 8 秒才派发（按键 18:48:59，`BACK → goBack(-1)` 落在 18:49:07.793），正好和 `TVDP_START` 撞上 | `popstate` 里判「回首页 + 非播放会话」直接取消（`TVDP_CANCEL`）；`dpTick` 再补一道 1.5 秒宽限的「路径回到 `/`」兜底（宽限是因为 `dpBegin` 那一刻路径还是 `/`） |
+
+**端到端日志（2026-11-07 18:53，一次跑完首播 + 换集 + 退出）**：
+
+```
+TVDP_BEGIN   {"title":"今天是太阳雨"}
+TVDP_REVEAL  {"waitedMs":10085}      ← 10 秒还没地址就撤遮罩，把详情页交还给用户
+TVDP_START   {"waitedMs":25768}      ← 地址一就绪立刻交给原生播放器
+PLAYER_OPEN  title=今天是太阳雨 pos=0 ep=0/8
+PLAYING      duration=2782302
+ACTIVITY_RESULT reason=episode pos=15800 dur=2782302 ep=0 pick=1   ← 播放器原生选集面板
+TVPROGRESS   {"synced":14,"from":0}  ← 换集前先把当前集进度写回站点
+TVEPISODE    {"pick":1,"autoPlay":true}
+TVEPISODE    {"resolved":"…/index.m3u8","afterMs":6693}
+PLAYER_OPEN  … ep=1/8 → PLAYING duration=3163086
+ACTIVITY_RESULT reason=back pos=18400 pick=-1
+TVPROGRESS   {"synced":16,"from":104}
+→ location.pathname = "/"，__tvDirectPlayState() 全字段归零
+```
+
+**换集不另做 UI**：播放器上原生的选集面板（`MENU` 唤起，`SHEET_OPEN`）已经够用。选一集后 `pick>=0` 返回，Java 侧调 `__tvSyncThenPick(sec, idx)` —— 先把当前集进度写回站点，2.4 秒后在后台详情页点对应集，6~7 秒重新起播，**全程没有详情页出现在用户眼前**。
+
+**已知代价**：起播等待 10~26 秒这一段是站点给的，我们只能保证「不把详情页甩给你」；10 秒回退之后用户看到的是详情页，但监听继续跑，地址一就绪仍会自动进播放器。
+
 ---
 
 ## 1. 目标设备事实（ADB 实测，非规格页推断）
@@ -656,10 +704,11 @@ adb shell cmd webviewupdate set-webview-implementation com.google.android.webvie
 | 5 | 原生播放 | 2–3 天 | ✅ **已完成**，见 §0.5：MediaPlayer 续播 1s 起播、遥控器全接管、伪装直链识破 |
 | 6 | 四项可选增强（选集 UI / 进度回写 / 登录入口 / 远程线路配置） | 1 天 | ✅ **已完成**，见 §0.6：换集全链路、resume 落库、手机输入登录、LAN+公网配置下发 |
 | **7** | 首屏体验六项（揭幕门 / 下划线导航 / 紧凑主推条 / 首屏排序 / 焦点放大 / 滚动缓动） | 0.5 天 | ✅ **已完成**，见 §0.7：开机不闪版、首屏无位移、焦点 190→209、滚动 9 帧补间 |
+| **8** | 首屏取舍 + 「追剧」菜单 + 直通播放（点海报直达全屏播放器） | 0.5 天 | ✅ **已完成**，见 §0.8：首屏只剩继续观看+海报墙、`/updates` 页面菜单直达、起播遮罩 10s 回退 26s 起播、换集 6.7s 重开、退出自动回首页 |
 
-阶段 0~7 **全部完成**。「能装、能显示、遥控器能走、沙发上能看清、能输入、能播片、
-能换集、能记住看到哪、能登录、能远程换域名、开机不闪版、焦点一眼可见、滚动有补间」
-十三件事都有实机证据。
+阶段 0~8 **全部完成**。「能装、能显示、遥控器能走、沙发上能看清、能输入、能播片、
+能换集、能记住看到哪、能登录、能远程换域名、开机不闪版、焦点一眼可见、滚动有补间、
+点海报一步进播放器」十四件事都有实机证据。
 
 ---
 
@@ -734,13 +783,14 @@ TV 端账号登录 / 扫码入口。改皮肤不用重装：`python3 tools/tv-sk
 
 ## 10. 一句话建议
 
-**阶段 0~5 全部完成**。电视版搜剧AI 已经是一个完整的可用产品：
-遥控器逛片、扫码输入搜索、原生播放器看片（自动续播 H5 进度）。
-`docs/tv-stage3-home.png` 是 App 自注入皮肤后的首屏。
+**阶段 0~8 全部完成**（`0.8.0` / build 9）。电视版搜剧AI 已经是一个完整的可用产品：
+遥控器逛片、扫码输入搜索、原生播放器看片（自动续播 H5 进度）、点海报一步直进全屏播放器。
+`docs/tv-stage8-home.png` 是当前首屏，`docs/tv-stage8-updates.png` 是「追剧」页，
+`docs/tv-stage8-directplay.png` 是点海报后的起播遮罩。
 
-- 伪装直链（`.jpg` 路径下 532MB mp4、content-type 谎报 image/jpeg）与
+- 伪装直链（`.jpg` / `.image` 路径下 532MB mp4、content-type 谎报 image/jpeg）与
   「`video.duration>0` 即可信」的判据已写进 `tv/README.md` 与代码注释，
   站点换 CDN 域名也不影响。
 - 系统 WebView 维持不动（§5.6），无待拍板事项。
-- 可选增强（未排期）：选集/剧集列表原生 UI、播放位置回写站点「继续观看」、
-  账号登录入口、远程线路配置下发。
+- 已知代价（站点侧，非我们能改）：点海报到起播仍要 10~26 秒，我们只保证这期间
+  用户看到的是海报遮罩而不是详情页；10 秒回退后详情页会交还给用户，地址一就绪仍自动起播。

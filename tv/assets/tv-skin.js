@@ -145,13 +145,63 @@
     if (host) { setFlag(host, 'data-tv-tonight-host'); }
   }
 
+  /* ── 顶部菜单补一项「追剧」（阶段 8） ────────────────────────
+     站点菜单只有 首页 / 短剧 / 历史 / 片单，完整周表（/updates）只藏在首页
+     「查看完整日历」按钮里；而首屏的周表按用户要求已经移除，入口必须补到菜单。
+     跳转走 pushState + popstate 让站点自己的路由接手：实测不触发整文档加载
+     （logcat 里 PAGE_START 计数一直是 0），切换 ~0.4 秒且首页状态全保留。
+     站点每次路由都会重渲染 nav，所以这里必须幂等 —— 节点被 React 丢掉后
+     下一次 sync()（MutationObserver 触发）会自动补回来。 */
+  var NAV_EXTRA_HREF = '/updates';
+  function navExtra() {
+    /* 页面级标记要在「有没有 nav」之前算：/updates 页本身没有主菜单，
+       它只靠这个标记挂自己的那套样式。 */
+    var onPage = location.pathname === NAV_EXTRA_HREF ||
+                 location.pathname.indexOf(NAV_EXTRA_HREF + '/') === 0;
+    var root = document.documentElement;
+    if (onPage) { root.setAttribute('data-tv-page', 'updates'); }
+    else if (root.getAttribute('data-tv-page') === 'updates') { root.removeAttribute('data-tv-page'); }
+
+    var nav = q('nav.app-primary-nav-desktop');
+    if (!nav) { return; }
+    var a = q('.tv-nav-updates');
+    if (!a) {
+      a = document.createElement('a');
+      a.className = 'app-primary-nav-link tv-nav-updates';
+      a.setAttribute('href', NAV_EXTRA_HREF);
+      a.setAttribute('data-tv-nav-extra', '');
+      a.textContent = '追剧';
+      a.addEventListener('click', function (ev) {
+        ev.preventDefault();
+        try {
+          window.history.pushState({}, '', NAV_EXTRA_HREF);
+          window.dispatchEvent(new window.PopStateEvent('popstate'));
+        } catch (e) { location.href = NAV_EXTRA_HREF; }
+      }, false);
+      var home = nav.querySelector('a[href="/"]');
+      if (home && home.parentNode === nav) { nav.insertBefore(a, home.nextSibling); }
+      else { nav.insertBefore(a, nav.firstChild); }
+    }
+    var on = onPage;
+
+    if (on && a.className.indexOf('is-active') < 0) {
+      a.className = 'app-primary-nav-link tv-nav-updates is-active';
+      a.setAttribute('aria-current', 'page');
+    } else if (!on && a.className.indexOf('is-active') >= 0) {
+      a.className = 'app-primary-nav-link tv-nav-updates';
+      a.removeAttribute('aria-current');
+    }
+  }
+
   /* ── 首屏占位（阶段 7） ─────────────────────────────────────
      站点首页的「继续观看」「本周追剧」是后挂载的：实测海报墙 4.3 秒就有了，
      这两块要 7.6 秒。等它们 = 开机空等 3 秒多；不等就会被它们当场把海报墙
      顶下去 300px —— 这就是「初始首页闪一下再刷新」的观感来源。
      折中：先放等高占位撑住位置，真块挂上来原位替换，海报墙从第一帧起
      就待在最终位置，全程零位移。 */
-  var PH_KEYS = ['resume', 'late'];
+  /* 阶段 8：首屏不要「本周追剧」（进了顶部菜单「追剧」的整页周表），
+     也不要「今晚首选」（海报墙第一张就是同一部，重复）。 */
+  var PH_KEYS = ['resume'];
 
   function ensurePh(wrap, key) {
     if (q('[data-tv-ph="' + key + '"]')) { return; }
@@ -197,6 +247,11 @@
 
   /* 今晚首选：复用首张 feed 卡的图 / 标题 / 简介 / 链接。
      不写 innerHTML（站点 CSP 无 unsafe-inline，且避免把标题当 HTML 解析）。 */
+  /* 阶段 8：首屏不再插「今晚首选」主推条。
+     站点第一张 feed 卡就是它，海报墙里本来就有；用户要求首屏只留
+     「继续观看 + 海报墙」。留开关以便日后想恢复。 */
+  var SHOW_TONIGHT = false;
+
   function tonight() {
     var old = q('.tv-tonight-card');
     if (!isHomePath()) { return; }
@@ -383,8 +438,9 @@
     try {
       ensureCssAtEnd();
       mark();
+      navExtra();
       placeholders();
-      tonight();
+      if (SHOW_TONIGHT) { tonight(); }
       health();
     } catch (e) {
       state = { installed: true, skin: SKIN, ready: true, error: String(e) };
