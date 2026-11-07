@@ -40,6 +40,8 @@ public class MainActivity extends Activity
 
     private static final long KEY_REPEAT_MIN_MS = 110;
     private static final long DOUBLE_BACK_MS = 2000;
+    private static final int REQ_PLAYER = 1001;
+    private static final int REQ_NATIVE_EPISODE = 1002;
 
     private WebView web;
     private NativeBridge bridge;
@@ -117,19 +119,63 @@ public class MainActivity extends Activity
         web.setWebChromeClient(new TvChromeClient(this));
 
         startInputServer();
+        refreshRemoteConfig(false);
 
         BridgeLog.i("boot", "UA " + s.getUserAgentString());
         BridgeLog.i("boot", "LINES " + Arrays.toString(lines));
         loadFromIntent(getIntent());
     }
 
+    /**
+     * 阶段 6：拉一次远程线路配置。启动时静默拉；局域网下发后立刻再拉一次做校验。
+     * 拉到新线路时只在「当前是错误页」的情况下立即重载，避免看剧途中被打断。
+     */
+    private void refreshRemoteConfig(final boolean afterPush) {
+        final String cfgUrl = TvConfig.url(this);
+        TvConfig.fetchAsync(this, cfgUrl, new TvConfig.Callback() {
+            @Override public void onConfig(final JSONObject summary, final boolean changed, final String error) {
+                runOnUiThread(new Runnable() {
+                    @Override public void run() {
+                        if (changed) {
+                            String[] stored = TvConfig.lines(MainActivity.this);
+                            if (stored != null && stored.length > 0) {
+                                lines = stored;
+                                ShellConfig.addTrustedHosts(TvConfig.trustedCsv(MainActivity.this));
+                            }
+                            BridgeLog.i("config", "CONFIG_CHANGED lines=" + Arrays.toString(lines));
+                            Toast.makeText(MainActivity.this,
+                                    "线路配置已更新（v" + TvConfig.version(MainActivity.this)
+                                            + " · " + lines.length + " 条）", Toast.LENGTH_LONG).show();
+                        }
+                        if (afterPush) {
+                            Toast.makeText(MainActivity.this,
+                                    changed ? "配置已生效" : "配置无变化或格式有误", Toast.LENGTH_SHORT).show();
+                        }
+                        // 错误页上换了线路，立刻重试，不用用户手动重启
+                        String u = web.getUrl();
+                        if (changed && u != null && u.startsWith("file:///android_asset/error")) {
+                            BridgeLog.i("config", "RELOAD_ON_ERROR_PAGE");
+                            failureHandledForLoad = false;
+                            loadLine(0);
+                        }
+                        BridgeLog.i("config", "CONFIG_STATE " + (summary == null ? "{}" : summary.toString())
+                                + " changed=" + changed + " error=" + error);
+                    }
+                });
+            }
+        });
+    }
+
     private void applyIntentConfig(Intent intent) {
         if (intent == null) return;
         String domains = intent.getStringExtra("domains");
+        if (domains == null || domains.trim().length() == 0) {
+            domains = intent.getStringExtra("lines");
+        }
+        int n = 0;
         if (domains != null && domains.trim().length() > 0) {
             String[] parts = domains.split(",");
             String[] normalized = new String[parts.length];
-            int n = 0;
             for (String p : parts) {
                 String v = ShellConfig.normalize(p);
                 if (v != null) normalized[n++] = v;
@@ -137,6 +183,28 @@ public class MainActivity extends Activity
             if (n > 0) lines = Arrays.copyOf(normalized, n);
         }
         ShellConfig.addTrustedHosts(intent.getStringExtra("trusted"));
+
+        /* 阶段 6：远程配置地址（一次下发后持久化，之后每次启动自动拉）。
+           `--es config off` 清掉，方便换托管或收尾测试。 */
+        String cfg = intent.getStringExtra("config");
+        if (cfg != null) {
+            String cv = cfg.trim();
+            if ("off".equalsIgnoreCase(cv) || "none".equalsIgnoreCase(cv) || "clear".equalsIgnoreCase(cv)) {
+                TvConfig.clearUrl(this);
+            } else if (cv.length() > 0) {
+                TvConfig.setUrl(this, ShellConfig.normalize(cv));
+            }
+        }
+        if (n == 0) {
+            String[] stored = TvConfig.lines(this);
+            if (stored != null && stored.length > 0) {
+                lines = stored;
+                BridgeLog.i("config", "LINES_FROM_CONFIG v" + TvConfig.version(this)
+                        + " " + Arrays.toString(lines));
+            }
+            ShellConfig.addTrustedHosts(TvConfig.trustedCsv(this));
+        }
+
         String skin = intent.getStringExtra("tvskin");
         if (skin != null) {
             String v = skin.trim().toLowerCase();
@@ -159,6 +227,35 @@ public class MainActivity extends Activity
                                 } catch (JSONException e) {
                                     BridgeLog.e("input", "EMIT_FAIL " + e.getMessage());
                                 }
+                            }
+                        });
+                    }
+
+                    /** 阶段 6：手机页推来的线路配置。可能只是登记远程地址，也可能是完整配置。 */
+                    @Override public void onConfigPush(final String json) {
+                        runOnUiThread(new Runnable() {
+                            @Override public void run() {
+                                try {
+                                    JSONObject o = new JSONObject(json);
+                                    String cu = o.optString("configUrl", "");
+                                    if (!cu.isEmpty()) {
+                                        TvConfig.setUrl(MainActivity.this, ShellConfig.normalize(cu));
+                                        refreshRemoteConfig(true);
+                                        return;
+                                    }
+                                } catch (JSONException ignored) {
+                                    // 不是对象就走完整配置分支，让它统一报错
+                                }
+                                boolean changed = TvConfig.applyJson(MainActivity.this, json, "lan", true);
+                                String[] stored = TvConfig.lines(MainActivity.this);
+                                if (stored != null && stored.length > 0 && changed) {
+                                    lines = stored;
+                                    ShellConfig.addTrustedHosts(TvConfig.trustedCsv(MainActivity.this));
+                                }
+                                Toast.makeText(MainActivity.this,
+                                        changed ? "线路配置已更新（" + lines.length + " 条）"
+                                                : "配置无变化或格式有误",
+                                        Toast.LENGTH_LONG).show();
                             }
                         });
                     }
@@ -343,8 +440,77 @@ public class MainActivity extends Activity
     }
 
     @Override
-    public void onPlayNative(String url, String title, long positionMs) {
-        PlayerActivity.launch(this, url, title, positionMs);
+    public void onPlayNative(String url, String title, long positionMs,
+                             String[] episodes, int episodeIndex) {
+        Intent i = PlayerActivity.intent(this, url, title, positionMs, episodes, episodeIndex);
+        startActivityForResult(i, REQ_PLAYER);
+    }
+
+    @Override
+    public JSONObject configInfo() {
+        return TvConfig.summary(this);
+    }
+
+    /**
+     * 原生播放器回来：把播放进度交回 H5（站点靠它写「继续观看」），
+     * 或者按用户选的集数交给 H5 去切集并重新起播。
+     */
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode != REQ_PLAYER) return;
+        if (data == null) {
+            BridgeLog.w("player", "ACTIVITY_RESULT 空数据（播放器被系统回收？）");
+            restoreFocus();
+            return;
+        }
+        long pos = data.getLongExtra(PlayerActivity.RESULT_POSITION, 0);
+        int dur = data.getIntExtra(PlayerActivity.RESULT_DURATION, 0);
+        String reason = data.getStringExtra(PlayerActivity.RESULT_REASON);
+        int pick = data.getIntExtra(PlayerActivity.RESULT_PICK, -1);
+        int epIndex = data.getIntExtra(PlayerActivity.RESULT_EPISODE_INDEX, -1);
+        BridgeLog.i("player", "ACTIVITY_RESULT reason=" + reason + " pos=" + pos
+                + " dur=" + dur + " ep=" + epIndex + " pick=" + pick);
+
+        if (pick >= 0) {
+            /* 换集：先把当前集看到的位置写回站点，再切。顺序反了「继续观看」会丢这一集。 */
+            String call = "window.__tvSyncThenPick ? window.__tvSyncThenPick("
+                    + (pos / 1000.0) + "," + pick + ") : null";
+            web.evaluateJavascript(call, null);
+            restoreFocus();
+            return;
+        }
+        try {
+            JSONObject p = new JSONObject()
+                    .put("positionMs", pos)
+                    .put("durationMs", dur)
+                    .put("reason", reason == null ? "back" : reason)
+                    .put("episodeIndex", epIndex);
+            web.evaluateJavascript("window.__tvPlaybackReturn && window.__tvPlaybackReturn("
+                    + p.toString() + ")", null);
+        } catch (JSONException e) {
+            BridgeLog.e("player", "RETURN_JSON_FAIL " + e.getMessage());
+        }
+        restoreFocus();
+    }
+
+    /** 播放器退出后 WebView 的焦点在 body 上，用户要按一次方向键才看得到焦点环。
+     *  这里主动让焦点引擎按上次位置就近恢复一次（有焦点就什么都不做）。 */
+    private void restoreFocus() {
+        handler.postDelayed(new Runnable() {
+            @Override public void run() {
+                web.evaluateJavascript("(function(){try{"
+                        + "var s=window.__tvState?JSON.parse(window.__tvState()):null;"
+                        + "if(s&&s.focused&&s.focused!=='(none)')return 'kept';"
+                        + "if(window.__tvKey){window.__tvKey('down');return 'recovered';}"
+                        + "return 'no-engine';}catch(e){return 'error';}})()",
+                        new android.webkit.ValueCallback<String>() {
+                            @Override public void onReceiveValue(String v) {
+                                BridgeLog.i("player", "FOCUS_RESTORE " + v);
+                            }
+                        });
+            }
+        }, 320);
     }
 
     // MARK: - 遥控器
@@ -411,13 +577,17 @@ public class MainActivity extends Activity
 
     /** MENU：手动切下一条线路并重载。failover 的人工触发口，也是现场换域名的应急入口。 */
     private boolean handleMenu() {
+        String cfg = "配置 v" + TvConfig.version(this)
+                + (TvConfig.version(this) > 0 ? "" : "（内置）");
         if (lines.length < 2) {
             TvFocusEngine.state(web);
-            Toast.makeText(this, "搜剧TV · v" + ShellConfig.APP_VERSION, Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "搜剧TV v" + ShellConfig.APP_VERSION + " · "
+                    + ShellConfig.hostOf(lines[0]) + " · " + cfg, Toast.LENGTH_LONG).show();
             return true;
         }
         loadLine((lineIndex + 1) % lines.length);
-        Toast.makeText(this, "已切换线路：" + ShellConfig.hostOf(lines[lineIndex]),
+        Toast.makeText(this, "已切换线路：" + ShellConfig.hostOf(lines[lineIndex])
+                + "（" + (lineIndex + 1) + "/" + lines.length + " · " + cfg + "）",
                 Toast.LENGTH_SHORT).show();
         return true;
     }

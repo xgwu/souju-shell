@@ -162,6 +162,33 @@ CDN 回包 `content-type: image/jpeg` 但字节是 `ftyp isom/avc1`（`Range: by
 硬件 overlay 层的截屏限制 —— 播放器取证看 `player:` 日志与音频 `state:started`，
 画面以电视实际显示为准。
 
+### 0.6 阶段 6 四项可选增强（2026-11-07 16:40 实机）
+
+版本 `0.6.0` / build 6 / 352KB APK。四项全部实机跑通：
+
+| 增强 | 落点 | 实机证据 |
+|---|---|---|
+| ① 选集 / 剧集列表原生 UI | H5 自建 8 列网格（`.tv-episode-cell`）+ `PlayerActivity` 底部面板（MENU 唤出、8 列/行、当前集高亮并自动获焦） | `EPISODE_PICK 7` → `RETURN reason=episode pos=337541/1694083 ep=5 pick=7` → `TVEPISODE pick 7 第8集` → `resolved .../axkVJBEe/index.m3u8 afterMs=11281` → `PLAYER_OPEN ep=7/15` → `PLAYING duration=1468250`（24:28，正是第 8 集） |
+| ② 播放位置回写「继续观看」 | H5 `syncProgress()`：退出时把站点 `<video>` 静音 seek 到目标位前 2 秒、真播 2.1 秒，借站点自己的 recorder 落库 | `TVPROGRESS {synced:32,from:111}`；localStorage `movie-search:v2:playback-resume:owner:guest` 首条变 `["走马上任","第8集",32]`，`updatedAt` 同步刷新；预览键 `playback-resume-preview` 也指向第 8 集 |
+| ③ 账号登录入口 | 自建登录浮层（二维码 + 账号/密码两个「手机输入」按钮 + 登录/返回）；回车路径全部走 8088 局域网输入，React 原型 setter 写值后点站点提交 | `TVINPUT {text:"demo@example.com",field:"account",lagMs:114}` → `TVLOGIN_ARM password` → `TVINPUT (password) lagMs:74` → 自动 `TVLOGIN_SUBMIT {hasForm:true,hasSubmit:true}` → 3.8s 后 `登录未成功`（假账号，属预期） |
+| ④ 远程线路配置下发 | `TvConfig`：启动异步拉 JSON（version/lines/trusted/notice），校验后落 SharedPreferences；两条下发通道 —— 公网 `--es config <url>`、局域网 `POST /api/config?k=<pin>` | LAN 推送 `CONFIG_PUSH len=137` → `CONFIG_APPLIED v9 lines=3 source=lan changed=true`；重启后 `LINES [souju.ai, hctd4.com, test-line-3.example]` 仍生效；公网通道 `CONFIG_FETCH 200` → `CONFIG_APPLIED v11 lines=2 trusted=bpz2.com,bpz3.top changed=true`；`--es config off` → `CONFIG_URL_CLEARED` |
+
+**本轮抓到的真 bug —— .ts 分片把播放列表挤出缓冲**：
+媒体嗅探原来把 `.ts` 也算媒体地址，HLS 每 2 秒一片，8 条环形缓冲几秒钟就被分片占满，
+点「原生播放」拿到的可能是一个 `.ts` 分片（只能播 2 秒）。改为：
+`.ts` 不入队，只用它反推 `index.m3u8`；`currentMedia()` 优先返回含 `m3u8` 的地址。
+修完 `playUrl` 稳定命中 `https://hn.bfvvs.com/play/e9rp0gPa/index.m3u8` 这类播放列表。
+
+**换集为什么要点完等 11 秒**：点站点选集后，站点自己要 11 秒左右才去请求新集的
+playlist（`TVEPISODE resolved afterMs=11281`），不是壳在等。这期间的优化是：
+切集瞬间把 H5 `<video>` 静音（站点会自己开播），拿到新地址再交给原生播放器；
+超时 20 秒才放弃并解除静音。原生面板换集还会先 `__tvSyncThenPick()`
+把当前集进度写回、2.4 秒后再切，避免两个动作抢同一个 `<video>`。
+
+**其它修复**：`log()` 统一加 `SOUJUTV` 前缀（`TvChromeClient` 的白名单），否则电视上
+console 取不到、现场只能靠截图；`visibilitychange` 补一次 `tick()`（WebView 被原生
+播放器盖住时定时器会被冻结，回来要立刻恢复工具栏状态）。
+
 ---
 
 ## 1. 目标设备事实（ADB 实测，非规格页推断）
@@ -583,9 +610,10 @@ adb shell cmd webviewupdate set-webview-implementation com.google.android.webvie
 | **3** | TV 版式皮肤（1280×720 坐标系）+ 兼容层 + 锚点自检 | 2–3 天 | ✅ **已完成**，见 §0.4：6 列 190px 网格、无横向溢出、26px 主字号、避开 5 个失效 CSS 特性、焦点连续 |
 | 4 | 手机扫码输入 | 1 天 | ✅ **已完成**，见 §0.5：配对码隔离 403 实测、回传 ~100ms |
 | 5 | 原生播放 | 2–3 天 | ✅ **已完成**，见 §0.5：MediaPlayer 续播 1s 起播、遥控器全接管、伪装直链识破 |
+| 6 | 四项可选增强（选集 UI / 进度回写 / 登录入口 / 远程线路配置） | 1 天 | ✅ **已完成**，见 §0.6：换集全链路、resume 落库、手机输入登录、LAN+公网配置下发 |
 
-阶段 0~5 **全部完成**。「能装、能显示、遥控器能走、沙发上能看清、能输入、能播片」
-六件事都有实机证据。剩余为可选增强（选集 UI、播放位置回写站点历史、登录入口、远程配置）。
+阶段 0~6 **全部完成**。「能装、能显示、遥控器能走、沙发上能看清、能输入、能播片、
+能换集、能记住看到哪、能登录、能远程换域名」十件事都有实机证据。
 
 ---
 

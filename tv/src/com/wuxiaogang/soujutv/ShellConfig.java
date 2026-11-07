@@ -15,11 +15,21 @@ import java.util.Set;
 public final class ShellConfig {
 
     public static final String TAG = "SoujuTV";
-    public static final String APP_VERSION = "0.5.0";
-    public static final int APP_BUILD = 5;
-    public static final String BRIDGE_VERSION = "1.2.0-tv";
+    public static final String APP_VERSION = "0.6.0";
+    public static final int APP_BUILD = 6;
+    public static final String BRIDGE_VERSION = "1.3.0-tv";
     /** 阶段 4 手机输入服务端口；换端口只改这里，二维码会同步变化。 */
     public static final int INPUT_SERVER_PORT = 8088;
+
+    /**
+     * 阶段 6 远程线路配置的默认地址（留空 = 不主动拉取）。
+     *
+     * 站点是域名轮换架构，换域名时重装 APK 在电视上很痛苦。把一份 JSON 放到任意
+     * 静态托管后，用 `adb shell am start --es config <url>` 或局域网输入页的
+     * 「线路配置」区块下发一次，地址就会持久化到 SharedPreferences，之后每次启动自动拉。
+     * 刻意不在代码里写死某个托管地址：谁部署谁填，避免壳跟某个具体域名绑死。
+     */
+    public static final String REMOTE_CONFIG_URL = "";
 
     /** 内置线路。与 iOS 版 ShellConfig.builtinDomains 对齐。 */
     public static final String[] BUILTIN_LINES = {

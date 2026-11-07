@@ -34,8 +34,11 @@ public final class NativeBridge {
         void onOverlayState(boolean open, String mode);
         /** 阶段 4：手机输入页地址 / 配对码 / 二维码 data URI。 */
         JSONObject inputServerInfo();
-        /** 阶段 5：启动原生播放器。 */
-        void onPlayNative(String url, String title, long positionMs);
+        /** 阶段 5/6：启动原生播放器。episodes 为剧集标签，可为空。 */
+        void onPlayNative(String url, String title, long positionMs,
+                          String[] episodes, int episodeIndex);
+        /** 阶段 6：远程线路配置摘要。 */
+        JSONObject configInfo();
     }
 
     private final WebView web;
@@ -181,6 +184,11 @@ public final class NativeBridge {
                     reply(oid, host.inputServerInfo());
                     return;
 
+                case "shell.getConfig":
+                    // 阶段 6：远程线路配置的当前状态（版本 / 线路 / 来源 / 拉取时间）
+                    reply(oid, host.configInfo());
+                    return;
+
                 case "playback.playNative": {
                     String u = p.optString("url", "");
                     if (!u.startsWith("http://") && !u.startsWith("https://")) {
@@ -188,10 +196,16 @@ public final class NativeBridge {
                         reply(oid, fail("BAD_URL", "只接受 http(s) 直链"));
                         return;
                     }
+                    JSONArray eps = p.optJSONArray("episodes");
+                    String[] labels = new String[eps == null ? 0 : eps.length()];
+                    for (int i = 0; i < labels.length; i++) {
+                        labels[i] = eps.optString(i, "");
+                    }
                     host.onPlayNative(u, p.optString("title", "搜剧TV"),
-                            p.optLong("positionMs", 0));
+                            p.optLong("positionMs", 0), labels, p.optInt("episodeIndex", -1));
                     BridgeLog.i("player", "PLAY_NATIVE title=" + p.optString("title", "")
-                            + " pos=" + p.optLong("positionMs", 0));
+                            + " pos=" + p.optLong("positionMs", 0)
+                            + " ep=" + p.optInt("episodeIndex", -1) + "/" + labels.length);
                     reply(oid, ok().put("launched", true));
                     return;
                 }
@@ -241,6 +255,7 @@ public final class NativeBridge {
                 .put("shell.reportHealth")
                 .put("shell.setOverlay")
                 .put("shell.getInputServerInfo")
+                .put("shell.getConfig")
                 .put("playback.playNative");
 
         return new JSONObject()

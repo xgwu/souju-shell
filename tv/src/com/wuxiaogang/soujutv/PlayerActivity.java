@@ -3,26 +3,38 @@ package com.wuxiaogang.soujutv;
 import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
+import android.graphics.Color;
+import android.graphics.drawable.GradientDrawable;
 import android.media.AudioManager;
 import android.media.MediaPlayer;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
+import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
+import android.widget.Button;
 import android.widget.FrameLayout;
+import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
 
+import org.json.JSONArray;
+
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 /**
- * 阶段 5：遥控器可控的原生播放器。
+ * 阶段 5/6：遥控器可控的原生播放器。
  *
  * 用系统 MediaPlayer + SurfaceView 而不是 ExoPlayer / media3 —— 本工程是
  * aapt2 → javac → d8 的零依赖手工链路，ExoPlayer 需要 7 个 AAR + AndroidX
@@ -30,7 +42,14 @@ import java.util.Map;
  * 系统 MediaPlayer 同样吃硬件解码，1080p 在 MT9653 上实测可用。
  *
  * 站点 H5 播放条是触摸设计，遥控器点不到进度条；这里把每个按键都显式接管：
- *   OK / 播放暂停键 → 播放/暂停，左/右 → ±10s，上/下 → 音量，MENU → 显示/隐藏条，返回 → 退出。
+ *   OK / 播放暂停键 → 播放/暂停，左/右 → ±10s，上/下 → 音量，MENU → 选集/控制条，返回 → 退出。
+ *
+ * 阶段 6 新增两件事：
+ *   ① 选集面板：H5 把剧集标签一起传进来（extras.episodes），MENU 打开原生的
+ *      网格面板，OK 换集后带着 pickIndex 返回 MainActivity，由 H5 点击站点那一集
+ *      并重新拉起播放器（站点才掌握每集的播放地址，原生不猜 URL）。
+ *   ② 进度回传：退出 / 播完时 setResult 带上 positionMs，H5 再静音真播 2 秒，
+ *      让站点自己的 recorder 把「继续观看」写回去。
  */
 public class PlayerActivity extends Activity
         implements SurfaceHolder.Callback, MediaPlayer.OnPreparedListener,
@@ -39,12 +58,22 @@ public class PlayerActivity extends Activity
     private static final String EXTRA_URL = "url";
     private static final String EXTRA_TITLE = "title";
     private static final String EXTRA_POS = "positionMs";
+    private static final String EXTRA_EPISODES = "episodes";
+    private static final String EXTRA_EP_INDEX = "episodeIndex";
+
+    public static final String RESULT_POSITION = "positionMs";
+    public static final String RESULT_DURATION = "durationMs";
+    public static final String RESULT_REASON = "reason";
+    public static final String RESULT_EPISODE_INDEX = "episodeIndex";
+    public static final String RESULT_PICK = "pickIndex";
 
     private SurfaceView surface;
     private MediaPlayer player;
     private TextView titleView;
     private TextView barView;
     private TextView errorView;
+    private FrameLayout sheet;
+    private ScrollView sheetScroll;
     private final Handler handler = new Handler(Looper.getMainLooper());
 
     private String url = "";
@@ -52,13 +81,27 @@ public class PlayerActivity extends Activity
     private long positionMs = 0;
     private boolean prepared = false;
     private boolean barVisible = true;
+    private boolean completed = false;
+    private List<String> episodes = new ArrayList<>();
+    private int episodeIndex = -1;
 
-    public static void launch(Context ctx, String url, String title, long positionMs) {
+    public static Intent intent(Context ctx, String url, String title, long positionMs,
+                                String[] episodes, int episodeIndex) {
         Intent i = new Intent(ctx, PlayerActivity.class);
         i.putExtra(EXTRA_URL, url);
         i.putExtra(EXTRA_TITLE, title);
         i.putExtra(EXTRA_POS, positionMs);
-        ctx.startActivity(i);
+        i.putExtra(EXTRA_EP_INDEX, episodeIndex);
+        if (episodes != null && episodes.length > 0) {
+            JSONArray arr = new JSONArray();
+            for (String e : episodes) { arr.put(e == null ? "" : e); }
+            i.putExtra(EXTRA_EPISODES, arr.toString());
+        }
+        return i;
+    }
+
+    public static void launch(Context ctx, String url, String title, long positionMs) {
+        ctx.startActivity(intent(ctx, url, title, positionMs, null, -1));
     }
 
     @Override
@@ -71,8 +114,11 @@ public class PlayerActivity extends Activity
             url = in.getStringExtra(EXTRA_URL) == null ? "" : in.getStringExtra(EXTRA_URL);
             title = in.getStringExtra(EXTRA_TITLE) == null ? "搜剧TV" : in.getStringExtra(EXTRA_TITLE);
             positionMs = in.getLongExtra(EXTRA_POS, 0);
+            episodeIndex = in.getIntExtra(EXTRA_EP_INDEX, -1);
+            episodes = parseEpisodes(in.getStringExtra(EXTRA_EPISODES));
         }
         BridgeLog.i("player", "PLAYER_OPEN title=" + title + " pos=" + positionMs
+                + " ep=" + episodeIndex + "/" + episodes.size()
                 + " url=" + (url.length() > 110 ? url.substring(0, 110) + "…" : url));
 
         FrameLayout root = new FrameLayout(this);
@@ -88,7 +134,7 @@ public class PlayerActivity extends Activity
         titleView = new TextView(this);
         titleView.setText(title);
         titleView.setTextColor(0xFFF2F1ED);
-        titleView.setTextSize(26);
+        titleView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 17);
         titleView.setBackgroundColor(0x88000000);
         titleView.setPadding(36, 18, 36, 18);
         FrameLayout.LayoutParams tp = new FrameLayout.LayoutParams(
@@ -98,7 +144,7 @@ public class PlayerActivity extends Activity
 
         barView = new TextView(this);
         barView.setTextColor(0xFFF2F1ED);
-        barView.setTextSize(22);
+        barView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
         barView.setBackgroundColor(0xAA0B0C0F);
         barView.setPadding(36, 18, 36, 18);
         barView.setGravity(Gravity.CENTER_VERTICAL);
@@ -109,14 +155,192 @@ public class PlayerActivity extends Activity
 
         errorView = new TextView(this);
         errorView.setTextColor(0xFFFFB08F);
-        errorView.setTextSize(24);
+        errorView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
         errorView.setGravity(Gravity.CENTER);
-        errorView.setVisibility(android.view.View.GONE);
+        errorView.setVisibility(View.GONE);
         root.addView(errorView, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
+        if (episodes.size() > 0) { buildSheet(root); }
+
         if (url.isEmpty()) { fail("没有可播放的地址"); }
         else { updateBar("正在准备播放…"); }
+    }
+
+    private static List<String> parseEpisodes(String json) {
+        List<String> out = new ArrayList<>();
+        if (json == null || json.isEmpty()) { return out; }
+        try {
+            JSONArray arr = new JSONArray(json);
+            for (int i = 0; i < arr.length(); i++) {
+                String s = arr.optString(i, "");
+                if (!s.isEmpty()) { out.add(s); }
+            }
+        } catch (Throwable t) {
+            BridgeLog.w("player", "EPISODES_PARSE_FAIL " + t.getMessage());
+        }
+        return out;
+    }
+
+    // MARK: - 选集面板
+
+    private void buildSheet(FrameLayout root) {
+        sheet = new FrameLayout(this);
+        /* 半透明遮罩：面板只占下半屏，上面仍能看到画面在播，
+           否则用户以为播放器退出了（MTK 的 screencap 拍不到 video 层，
+           但真机上视频会透出来）。 */
+        sheet.setBackgroundColor(0xA8000000);
+        sheet.setVisibility(View.GONE);
+        sheet.setFocusable(true);
+        sheet.setClickable(true);
+
+        LinearLayout col = new LinearLayout(this);
+        col.setOrientation(LinearLayout.VERTICAL);
+        int pad = dp(36);
+        col.setPadding(pad, dp(28), pad, dp(20));
+
+        TextView head = new TextView(this);
+        head.setText("选集 · 共 " + episodes.size() + " 集");
+        head.setTextColor(0xFFF2F1ED);
+        head.setTextSize(TypedValue.COMPLEX_UNIT_SP, 22);
+        head.setPadding(0, 0, 0, dp(14));
+        col.addView(head);
+
+        sheetScroll = new ScrollView(this);
+        sheetScroll.setFillViewport(false);
+        LinearLayout grid = new LinearLayout(this);
+        grid.setOrientation(LinearLayout.VERTICAL);
+
+        final int perRow = 8;
+        LinearLayout row = null;
+        for (int i = 0; i < episodes.size(); i++) {
+            if (i % perRow == 0) {
+                row = new LinearLayout(this);
+                row.setOrientation(LinearLayout.HORIZONTAL);
+                LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                rlp.bottomMargin = dp(10);
+                grid.addView(row, rlp);
+            }
+            final int index = i;
+            Button b = new Button(this);
+            b.setText(episodes.get(i));
+            b.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
+            b.setTextColor(0xFFF2F1ED);
+            b.setAllCaps(false);
+            b.setFocusable(true);
+            b.setBackground(cellBg(i == episodeIndex));
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0,
+                    dp(58), 1f);
+            lp.rightMargin = dp(10);
+            row.addView(b, lp);
+            b.setOnClickListener(new View.OnClickListener() {
+                @Override public void onClick(View v) {
+                    BridgeLog.i("player", "EPISODE_PICK " + index);
+                    finishWithResult("episode", index);
+                }
+            });
+            b.setOnFocusChangeListener(new View.OnFocusChangeListener() {
+                @Override public void onFocusChange(View v, boolean hasFocus) {
+                    v.setBackground(cellBg(hasFocus || index == episodeIndex));
+                }
+            });
+        }
+        sheetScroll.addView(grid);
+        LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f);
+        col.addView(sheetScroll, slp);
+
+        TextView hint = new TextView(this);
+        hint.setText("方向键选择 · OK 换集 · 返回键继续看当前集");
+        hint.setTextColor(0xFFBCB9B3);
+        hint.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        hint.setPadding(0, dp(10), 0, 0);
+        col.addView(hint);
+
+        GradientDrawable panelBg = new GradientDrawable();
+        panelBg.setColor(0xF00B0C0F);
+        panelBg.setCornerRadii(new float[]{ dp(22), dp(22), dp(22), dp(22), 0, 0, 0, 0 });
+        FrameLayout panel = new FrameLayout(this);
+        panel.setBackground(panelBg);
+        panel.addView(col, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+
+        /* 面板高度按内容算：15 集两行就只占两行的高度，别留一大片黑。
+           集数多时封顶 58% 屏高，里面滚动。 */
+        int rows = (episodes.size() + 7) / 8;
+        int want = dp(28 + 20 + 46) + rows * (dp(58) + dp(10)) + dp(26);
+        int screenH = getResources().getDisplayMetrics().heightPixels;
+        int cap = (int) (screenH * 0.58f);
+        FrameLayout.LayoutParams plp = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, Math.min(want, cap));
+        plp.gravity = Gravity.BOTTOM;
+        sheet.addView(panel, plp);
+        root.addView(sheet, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+    }
+
+    private GradientDrawable cellBg(boolean highlight) {
+        GradientDrawable d = new GradientDrawable();
+        d.setCornerRadius(dp(10));
+        if (highlight) {
+            d.setColor(0x44FF6B42);
+            d.setStroke(dp(2), 0xCCFF6B42);
+        } else {
+            d.setColor(0x14FFFFFF);
+            d.setStroke(dp(1), 0x33FFFFFF);
+        }
+        return d;
+    }
+
+    private int dp(int v) {
+        return (int) (v * getResources().getDisplayMetrics().density + 0.5f);
+    }
+
+    private boolean sheetVisible() {
+        return sheet != null && sheet.getVisibility() == View.VISIBLE;
+    }
+
+    private void toggleSheet() {
+        if (sheet == null) { return; }
+        if (sheetVisible()) { hideSheet(); return; }
+        sheet.setVisibility(View.VISIBLE);
+        titleView.setVisibility(View.GONE);
+        barView.setVisibility(View.GONE);
+        // 滚动到当前集并让它拿到焦点，避免从第 1 集开始找
+        View target = null;
+        if (sheetScroll.getChildCount() > 0) {
+            LinearLayout grid = (LinearLayout) sheetScroll.getChildAt(0);
+            int flat = 0;
+            int want = episodeIndex < 0 ? 0 : episodeIndex;
+            for (int r = 0; r < grid.getChildCount() && target == null; r++) {
+                LinearLayout row = (LinearLayout) grid.getChildAt(r);
+                for (int c = 0; c < row.getChildCount(); c++) {
+                    if (flat == want) { target = row.getChildAt(c); break; }
+                    flat++;
+                }
+            }
+        }
+        final View focusTarget = target;
+        if (focusTarget != null) {
+            focusTarget.post(new Runnable() {
+                @Override public void run() {
+                    focusTarget.requestFocus();
+                    // 让当前集落在可视区中部
+                    int y = focusTarget.getTop();
+                    sheetScroll.smoothScrollTo(0, Math.max(0, y - dp(80)));
+                }
+            });
+        }
+        BridgeLog.i("player", "SHEET_OPEN ep=" + episodeIndex);
+    }
+
+    private void hideSheet() {
+        if (sheet == null) { return; }
+        sheet.setVisibility(View.GONE);
+        titleView.setVisibility(View.VISIBLE);
+        barView.setVisibility(barVisible ? View.VISIBLE : View.GONE);
+        BridgeLog.i("player", "SHEET_CLOSE");
     }
 
     // MARK: - SurfaceHolder.Callback
@@ -175,8 +399,17 @@ public class PlayerActivity extends Activity
 
     @Override
     public void onCompletion(MediaPlayer mp) {
+        completed = true;
+        BridgeLog.i("player", "COMPLETED ep=" + episodeIndex + "/" + episodes.size());
+        // 有下一集就自动续播：把选择权交回 H5（它才知道下一集的地址）
+        if (episodeIndex >= 0 && episodeIndex + 1 < episodes.size()) {
+            updateBar("播放结束，即将播放 " + episodes.get(episodeIndex + 1));
+            handler.postDelayed(new Runnable() {
+                @Override public void run() { finishWithResult("next", -1); }
+            }, 1200);
+            return;
+        }
         updateBar("播放结束 · 按返回键退出");
-        BridgeLog.i("player", "COMPLETED");
     }
 
     // MARK: - 遥控器
@@ -184,12 +417,20 @@ public class PlayerActivity extends Activity
     @Override
     public boolean dispatchKeyEvent(KeyEvent ev) {
         int code = ev.getKeyCode();
+        // 选集面板打开时把方向键交回 View 体系，让原生焦点遍历自己走
+        if (sheetVisible()) {
+            if (ev.getAction() == KeyEvent.ACTION_DOWN && code == KeyEvent.KEYCODE_BACK) {
+                hideSheet();
+                return true;
+            }
+            return super.dispatchKeyEvent(ev);
+        }
         if (ev.getAction() != KeyEvent.ACTION_DOWN) return true;
         switch (code) {
             case KeyEvent.KEYCODE_BACK:
             case KeyEvent.KEYCODE_ESCAPE:
                 BridgeLog.i("player", "EXIT");
-                finish();
+                finishWithResult("back", -1);
                 return true;
             case KeyEvent.KEYCODE_DPAD_CENTER:
             case KeyEvent.KEYCODE_ENTER:
@@ -213,9 +454,10 @@ public class PlayerActivity extends Activity
                 volume(AudioManager.ADJUST_LOWER);
                 return true;
             case KeyEvent.KEYCODE_MENU:
+                if (episodes.size() > 0) { toggleSheet(); return true; }
                 barVisible = !barVisible;
-                barView.setVisibility(barVisible ? android.view.View.VISIBLE : android.view.View.GONE);
-                titleView.setVisibility(barVisible ? android.view.View.VISIBLE : android.view.View.GONE);
+                barView.setVisibility(barVisible ? View.VISIBLE : View.GONE);
+                titleView.setVisibility(barVisible ? View.VISIBLE : View.GONE);
                 return true;
             default:
                 return true;   // 播放器期间不把任何键漏给底层 WebView
@@ -275,21 +517,46 @@ public class PlayerActivity extends Activity
             text = (player.isPlaying() ? "[播放] " : "[暂停] ") + mmss(cur) + " / "
                     + (dur > 0 ? mmss(dur) : "--:--");
         } catch (Throwable t) { text = "播放中"; }
-        updateBar(text + "     ← →  ±10s     上/下  音量     OK  播放/暂停     返回  退出");
+        String tail = episodes.size() > 0
+                ? "     ← →  ±10s     上/下  音量     OK  播放/暂停     MENU  选集     返回  退出"
+                : "     ← →  ±10s     上/下  音量     OK  播放/暂停     返回  退出";
+        updateBar(text + tail);
     }
 
     private static String mmss(int ms) {
         int s = Math.max(0, ms / 1000);
-        return String.format(java.util.Locale.US, "%02d:%02d", s / 60, s % 60);
+        return String.format(Locale.US, "%02d:%02d", s / 60, s % 60);
     }
 
     private void fail(String msg) {
         prepared = false;
         if (errorView != null) {
             errorView.setText(msg);
-            errorView.setVisibility(android.view.View.VISIBLE);
+            errorView.setVisibility(View.VISIBLE);
         }
         updateBar(msg);
+    }
+
+    /** 退出前把进度交回 H5：站点靠它更新「继续观看」。 */
+    private void finishWithResult(String reason, int pick) {
+        long pos = 0;
+        int dur = 0;
+        if (player != null) {
+            try {
+                pos = player.getCurrentPosition();
+                dur = player.getDuration();
+            } catch (Throwable ignored) {}
+        }
+        Intent data = new Intent();
+        data.putExtra(RESULT_POSITION, pos);
+        data.putExtra(RESULT_DURATION, dur);
+        data.putExtra(RESULT_REASON, reason);
+        data.putExtra(RESULT_EPISODE_INDEX, episodeIndex);
+        if (pick >= 0) { data.putExtra(RESULT_PICK, pick); }
+        setResult(RESULT_OK, data);
+        BridgeLog.i("player", "RETURN reason=" + reason + " pos=" + pos + "/" + dur
+                + " ep=" + episodeIndex + (pick >= 0 ? " pick=" + pick : ""));
+        finish();
     }
 
     @Override

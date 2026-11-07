@@ -193,6 +193,11 @@
     if (mode === 'qr') {
       return document.querySelectorAll('[data-tv-overlay-root="qr"]');
     }
+    /* 阶段 6：选集 / 登录浮层也各自独占候选域，否则方向键会跑到遮罩下。
+       选集网格会滚动，候选必须留在面板内才能让 reveal() 正确滚动容器。 */
+    if (mode === 'episodes' || mode === 'login') {
+      return document.querySelectorAll('[data-tv-overlay-root="' + mode + '"]');
+    }
     var dialogs = document.querySelectorAll('[role="dialog"],[aria-modal="true"]');
     for (var i = dialogs.length - 1; i >= 0; i--) {
       if (isVisible(dialogs[i])) { return [dialogs[i]]; }

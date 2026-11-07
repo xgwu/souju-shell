@@ -85,8 +85,8 @@ html[data-tv-skin="on"] .app-primary-nav-desktop {
   position: fixed !important;
   top: 8px !important;
   left: 40px !important;
-  /* 右侧 250px 让给 .tv-toolbar（搜索 / 手机输入 / 原生播放） */
-  right: 250px !important;
+  /* 右侧 340px 让给 .tv-toolbar（搜索 / 选集 / 账号 / 手机输入 / 原生播放） */
+  right: 340px !important;
   bottom: auto !important;
   width: auto !important;
   max-width: none !important;
@@ -479,9 +479,9 @@ html[data-tv-skin="on"] .tv-toolbar {
   z-index: 70 !important;
 }
 html[data-tv-skin="on"] .tv-tool-btn {
-  width: 62px !important;
+  width: 56px !important;
   height: 52px !important;
-  margin: 0 0 0 10px !important;
+  margin: 0 0 0 8px !important;
   padding: 0 !important;
   display: flex !important;
   align-items: center !important;
@@ -516,7 +516,7 @@ html[data-tv-skin="on"] .tv-overlay-shade {
   right: 0 !important;
   bottom: 0 !important;
   background: rgba(6, 7, 9, 0.84) !important;
-  z-index: 200 !important;
+  z-index: 240 !important;
 }
 html[data-tv-skin="on"][data-tv-overlay] .tv-overlay-shade {
   display: block !important;
@@ -534,7 +534,7 @@ html[data-tv-skin="on"] .tv-search-panel {
   border-radius: 22px !important;
   background: #1B1D22 !important;
   box-shadow: 0 26px 90px rgba(0, 0, 0, 0.78) !important;
-  z-index: 210 !important;
+  z-index: 250 !important;
 }
 html[data-tv-skin="on"][data-tv-overlay="search"] .tv-search-panel {
   display: block !important;
@@ -586,7 +586,7 @@ html[data-tv-skin="on"] .tv-qr-dialog {
   border-radius: 24px !important;
   background: #1B1D22 !important;
   box-shadow: 0 26px 90px rgba(0, 0, 0, 0.78) !important;
-  z-index: 210 !important;
+  z-index: 250 !important;
 }
 html[data-tv-skin="on"][data-tv-overlay="qr"] .tv-qr-dialog {
   display: block !important;
@@ -643,7 +643,172 @@ html[data-tv-skin="on"] .tv-toast {
   background: rgba(255, 107, 66, 0.22) !important;
   border: 1px solid rgba(255, 107, 66, 0.45) !important;
   border-radius: 12px !important;
-  z-index: 230 !important;
+  z-index: 260 !important;
+}
+
+/* ── 12. 选集网格 / 账号登录浮层（阶段 6） ──────────────────────
+   站点播放页的选集是右侧 352px 抽屉：电视上每格不到 40px，遥控器点不准。
+   这里重排成 8 列 × 62px 的网格，一屏放得下 32 集。 */
+html[data-tv-skin="on"] .tv-episode-panel {
+  display: none !important;
+  position: fixed !important;
+  top: 96px !important;
+  left: 50px !important;
+  width: 1180px !important;
+  max-height: 552px !important;
+  box-sizing: border-box !important;
+  padding: 26px 30px 20px 30px !important;
+  overflow-y: auto !important;
+  border: 1px solid rgba(255, 255, 255, 0.14) !important;
+  border-radius: 24px !important;
+  background: #1B1D22 !important;
+  box-shadow: 0 26px 90px rgba(0, 0, 0, 0.78) !important;
+  z-index: 250 !important;
+}
+html[data-tv-skin="on"][data-tv-overlay="episodes"] .tv-episode-panel {
+  display: block !important;
+}
+html[data-tv-skin="on"] .tv-episode-panel h2 {
+  font-size: 30px !important;
+  line-height: 1.2 !important;
+  margin: 0 0 4px 0 !important;
+  padding: 0 !important;
+  color: #F2F1ED !important;
+}
+html[data-tv-skin="on"] .tv-episode-panel .tv-overlay-hint {
+  margin: 0 0 18px 0 !important;
+}
+html[data-tv-skin="on"] .tv-episode-grid {
+  display: grid !important;
+  grid-template-columns: repeat(8, 1fr) !important;
+  grid-auto-rows: 62px !important;
+  gap: 12px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+html[data-tv-skin="on"] .tv-episode-cell {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 100% !important;
+  height: 62px !important;
+  margin: 0 !important;
+  padding: 0 8px !important;
+  font-size: 23px !important;
+  font-weight: 800 !important;
+  line-height: 1.1 !important;
+  color: #F2F1ED !important;
+  background: rgba(255, 255, 255, 0.07) !important;
+  border: 1px solid rgba(255, 255, 255, 0.16) !important;
+  border-radius: 12px !important;
+  cursor: pointer !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+}
+html[data-tv-skin="on"] .tv-episode-cell.is-current {
+  background: rgba(255, 107, 66, 0.26) !important;
+  border-color: rgba(255, 107, 66, 0.78) !important;
+  color: #FFD3C2 !important;
+}
+
+/* 站点自己的登录弹窗必须让位：它挂在 .presentation-portal（z-index 2147483500）里，
+   .movie-auth-dialog 又是 z-index 230 的全屏 scrim —— 实测它会把我们的登录浮层
+   整个盖住，连 elementFromPoint 都命中它，焦点引擎因此判定「看不见焦点」。
+   电视上那个表单也没法用（账号密码要键盘），所以直接隐藏，只留 DOM 让
+   tv-overlay.js 往里写值并点提交。display:none 不会卸载 React 节点，写值仍然生效。 */
+html[data-tv-skin="on"] .movie-auth-dialog {
+  display: none !important;
+}
+
+html[data-tv-skin="on"] .tv-login-panel {
+  display: none !important;
+  position: fixed !important;
+  top: 78px !important;
+  left: 190px !important;
+  width: 900px !important;
+  box-sizing: border-box !important;
+  padding: 26px 30px 22px 30px !important;
+  border: 1px solid rgba(255, 255, 255, 0.14) !important;
+  border-radius: 24px !important;
+  background: #1B1D22 !important;
+  box-shadow: 0 26px 90px rgba(0, 0, 0, 0.78) !important;
+  z-index: 250 !important;
+}
+html[data-tv-skin="on"][data-tv-overlay="login"] .tv-login-panel {
+  display: block !important;
+}
+html[data-tv-skin="on"] .tv-login-panel h2 {
+  font-size: 30px !important;
+  line-height: 1.2 !important;
+  margin: 0 0 4px 0 !important;
+  padding: 0 !important;
+  color: #F2F1ED !important;
+}
+html[data-tv-skin="on"] .tv-login-panel .tv-overlay-hint {
+  margin: 0 0 14px 0 !important;
+  max-width: 520px !important;
+}
+html[data-tv-skin="on"] .tv-login-row {
+  display: flex !important;
+  align-items: center !important;
+  min-height: 64px !important;
+  margin: 0 0 12px 0 !important;
+  padding: 0 0 0 18px !important;
+  border: 1px solid rgba(255, 255, 255, 0.14) !important;
+  border-radius: 14px !important;
+  background: #0F1013 !important;
+}
+html[data-tv-skin="on"] .tv-login-label {
+  flex: 0 0 82px !important;
+  font-size: 23px !important;
+  font-weight: 800 !important;
+  color: #BCB9B3 !important;
+}
+html[data-tv-skin="on"] .tv-login-value {
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+  font-size: 24px !important;
+  color: #F2F1ED !important;
+  overflow: hidden !important;
+  white-space: nowrap !important;
+  text-overflow: ellipsis !important;
+}
+html[data-tv-skin="on"] .tv-login-value.tv-login-empty {
+  color: #7C7A75 !important;
+}
+html[data-tv-skin="on"] .tv-login-row .tv-login-arm {
+  flex: 0 0 auto !important;
+  margin: 0 8px 0 12px !important;
+  min-width: 168px !important;
+  font-size: 21px !important;
+}
+html[data-tv-skin="on"] .tv-login-arm.is-armed {
+  background: rgba(255, 107, 66, 0.30) !important;
+  border-color: rgba(255, 107, 66, 0.8) !important;
+  color: #FFD3C2 !important;
+}
+html[data-tv-skin="on"] .tv-login-qr {
+  display: flex !important;
+  align-items: flex-start !important;
+  margin: 4px 0 0 0 !important;
+  padding: 12px 0 0 0 !important;
+  border-top: 1px solid rgba(255, 255, 255, 0.10) !important;
+}
+html[data-tv-skin="on"] .tv-login-qr .tv-qr-img {
+  width: 150px !important;
+  height: 150px !important;
+  margin: 0 22px 0 0 !important;
+  padding: 8px !important;
+}
+html[data-tv-skin="on"] .tv-login-qr .tv-qr-copy {
+  padding-top: 6px !important;
+  font-size: 20px !important;
+}
+html[data-tv-skin="on"] .tv-login-status {
+  margin: 10px 0 0 0 !important;
+  font-size: 20px !important;
+  color: #FFB08F !important;
 }
 
 /* 电视没有鼠标，去掉 hover 态挂死与滚动条视觉噪声 */

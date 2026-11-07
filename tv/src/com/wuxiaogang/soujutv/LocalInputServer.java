@@ -29,6 +29,8 @@ public final class LocalInputServer {
 
     public interface Callback {
         void onRemoteText(String text, long issuedAtMs);
+        /** 阶段 6：局域网推送的线路配置 JSON（原样传，主线程校验后落库）。 */
+        void onConfigPush(String json);
     }
 
     private final int port;
@@ -147,6 +149,22 @@ public final class LocalInputServer {
                         "{\"ok\":true,\"text\":" + jstr(text) + "}");
                 return;
             }
+            if (path.equals("/api/config") && "POST".equals(method)) {
+                /* 阶段 6：手机页直接推一份线路配置，省掉公网托管。
+                   支持两种写法：完整 JSON（lines/version/trusted），
+                   或 {"configUrl":"https://…/tv-config.json"} 只登记远程地址。 */
+                String payload = body != null ? body.trim() : "";
+                if (payload.isEmpty()) { payload = param(query, "json").trim(); }
+                if (payload.isEmpty()) {
+                    write(socket, 400, "application/json; charset=utf-8",
+                            "{\"ok\":false,\"error\":\"empty_body\"}");
+                    return;
+                }
+                BridgeLog.i("input", "CONFIG_PUSH len=" + payload.length());
+                callback.onConfigPush(payload);
+                write(socket, 200, "application/json; charset=utf-8", "{\"ok\":true}");
+                return;
+            }
             if (path.equals("/send") && "POST".equals(method)) {
                 String text = param(body, "text");
                 deliver(text);
@@ -179,7 +197,8 @@ public final class LocalInputServer {
         try {
             byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
             OutputStream out = socket.getOutputStream();
-            String status = code == 200 ? "OK" : (code == 403 ? "Forbidden" : "Not Found");
+            String status = code == 200 ? "OK"
+                    : (code == 400 ? "Bad Request" : (code == 403 ? "Forbidden" : "Not Found"));
             out.write(("HTTP/1.1 " + code + " " + status + "\r\n"
                     + "Content-Type: " + type + "\r\n"
                     + "Content-Length: " + bytes.length + "\r\n"
@@ -202,11 +221,28 @@ public final class LocalInputServer {
                 + "border:1px solid #3a3c42;border-radius:14px;padding:14px;font-size:18px}"
                 + "button{margin-top:18px;width:100%;height:54px;border:0;border-radius:14px;"
                 + "background:#FF6B42;color:#12100F;font-size:19px;font-weight:700}"
+                + "details{margin-top:34px;border-top:1px solid #2a2c31;padding-top:22px}"
+                + "summary{font-size:17px;color:#FFB08F;font-weight:700}"
+                + "code{font-size:13px;color:#BCB9B3;word-break:break-all}"
+                + ".out{margin-top:12px;font-size:15px;color:#8CE39B;min-height:22px}"
                 + "</style></head><body>"
                 + "<h1>搜剧TV · 手机输入</h1><p>输入后自动送到电视并搜索，不用在电视上打字。</p>"
                 + "<form method=\"post\" action=\"/send?k=" + pin + "\">"
                 + "<textarea name=\"text\" maxlength=\"160\" autofocus placeholder=\"例如：想看节奏快的悬疑剧\"></textarea>"
-                + "<button type=\"submit\">发送到电视</button></form></body></html>";
+                + "<button type=\"submit\">发送到电视</button></form>"
+                + "<details><summary>线路配置下发（进阶）</summary>"
+                + "<p>粘贴一份 JSON 后保存，电视会立即校验并落库。也可以只填远程地址，"
+                + "之后每次启动自动拉取。</p>"
+                + "<textarea id=\"cfg\" spellcheck=\"false\">{\"version\":2,\"lines\":[\"https://souju.ai\",\"https://hctd4.com\"]}</textarea>"
+                + "<button type=\"button\" onclick=\"pushCfg()\">保存到电视</button>"
+                + "<div class=\"out\" id=\"out\"></div></details>"
+                + "<script>function pushCfg(){var t=document.getElementById('cfg').value;"
+                + "var o=document.getElementById('out');o.textContent='提交中…';"
+                + "fetch('/api/config?k=" + pin + "',{method:'POST',headers:{'Content-Type':'application/json'},body:t})"
+                + ".then(function(r){return r.json()}).then(function(j){"
+                + "o.textContent=j&&j.ok?'已提交，电视会在两秒内应用':'提交失败：'+(j&&j.error||'未知');})"
+                + ".catch(function(e){o.textContent='提交失败：'+e;});}</script>"
+                + "</body></html>";
     }
 
     private String okPage(String text) {
