@@ -48,6 +48,41 @@
 
 截图同时确认了一件必须做的事：站点现在是**桌面窄版布局**（内容居中、两侧大片留白），字号对 2.5m 观看距离过小 —— §6 的 TV 版式不是锦上添花，是可用性前提。
 
+### 0.3 阶段 1+2 已验证通过（2026-11-07 12:00 实机）
+
+正式壳与焦点引擎已经装进电视，全部取证来自 `adb logcat -s SoujuTV` 与自检回包，不依赖界面描述。
+
+| 验证项 | 结果 |
+|---|---|
+| 构建 | 7 个 Java 类 / 44KB APK，v1+v2+v3 签名通过，`adb install -r` 319–469ms |
+| **桥就位** | 站点主动调用 `app.getSystemInsets`、`app.getCapabilities`（多次），`bridge:true`；令牌误拒 0 次 |
+| **能力协商** | `platform:"android"` + `supportsNativePlayer:false` → 站点判 `legacy_app`，回落 H5 播放器 |
+| **注入自检** | `cssInjected:true`、焦点环 `rgb(255,138,61)`、`Array.at` / `replaceAll` / `randomUUID` 三个 polyfill 全生效 |
+| **焦点遍历** | 83 个候选；连续右键 y=16→16→19，向下 x 偏移 26–27px，**无斜跳**；OK 键 `clicked` 生效 |
+| **焦点环可见** | 实机截图确认橙色描边框住「周六 7日」日历格 |
+| **令牌隔离** | 不可信 `file://` 页面上 `SoujuTvNative` 确实存在，但伪造/空/猜测令牌 3 次调用**全部 REJECT**，且 `H5ShellNativeBridge === undefined` |
+| **线路 failover** | 首条 `ERR_UNSAFE_PORT` → `FAILOVER_TRIGGER` → 600ms 后切第二条，VERIFY / DOM 全绿 |
+| 返回 / 菜单 | BACK 跳过失败页历史、单次不退出；MENU 切线路生效 |
+| 稳定性 | 无 JS 错误、无崩溃、进程存活 |
+
+**四条推翻或细化了原方案的实测结论**（细节见 §4、§5.1）：
+
+1. **站点 CSP 是 `script-src 'self' https:`（无 `unsafe-inline`），`frame-ancestors 'none'`**。
+   所以不能靠 `shouldInterceptRequest` 改写 HTML 塞 `<script>` 来做 documentStart 注入。
+   `evaluateJavascript` 从 WebView 层执行，**不受页面 CSP 约束** —— 自检回包证实了这一点。
+   注入时序靠 start / progress≥15 / finish 三次幂等注入 + 站点自身 `[0,120,320,700]ms` 四轮等桥重试兜底。
+2. **导航白名单必须与桥白名单分开**。原方案写「拦掉白名单外所有跳转」，但站点是域名轮换架构，
+   顶层导航一旦严格拦截，中转域换了就打不开。改成：顶层 https 导航放行，
+   **只有可信 host 的主 frame 下发令牌**。安全等价性更强 —— 令牌才是真正的权限边界。
+3. **站点的 `window.AiMovieAndroidBridge.postMessage` 只是环境探针，不是 RPC 通道**。
+   全量 bundle 里它只出现在 `native-environment`，真正 RPC 一律走 `H5ShellNativeBridge.call`。
+   UA 刻意**不加** `AIMovieAndroidBrowser/1`：那个标记会让站点走原生更新检查 / 午夜剧场原生全屏分支，
+   而 A 阶段两者都没实现。`capabilities.platform:"android"` 已足够让 insets 与评论区走正确分支。
+4. **焦点环比预想难**：站点按钮带 `.movie-button-secondary:focus` 这类高特异性规则，
+   会盖掉样式表里的 `.tv-focused { outline:…!important }`（实测三个按钮里两个分别显示白/深墨色）。
+   最终改成 JS 侧写 **inline `!important`** 并在切换时还原原值。另外补了 `elementFromPoint` 最上层过滤，
+   否则弹窗遮罩底下的元素仍会被当成可聚焦；以及去掉 `outline-color` 的 120ms 过渡，让焦点环即时可见。
+
 ---
 
 ## 1. 目标设备事实（ADB 实测，非规格页推断）
@@ -146,28 +181,41 @@ HTTP 200   4021 bytes   0.79s
 ## 4. 推荐架构
 
 ```
-雷鸟电视 · Android 11 · MT9653
-└── SoujuTv (Kotlin, 单 Activity + 播放 Activity)
-    ├── TvInputRouter        遥控器按键拦截与分发
-    ├── WebView              React SPA + 注入 TV 皮肤 + 焦点引擎
-    ├── NativeBridge         16 个方法的 Android 实现
-    ├── PlayerActivity       media3 / ExoPlayer（B 阶段）
-    └── LocalInputServer     手机扫码输入（局域网 HTTP，可选）
+雷鸟电视 · Android 11 · MT9653 · WebView 83
+└── SoujuTv (Java, 单 Activity)                       ← 阶段 1+2 已实现
+    ├── MainActivity          宿主、按键路由、全屏、failover 编排
+    ├── TvWebViewClient       导航边界、注入挂钩、失败上报
+    ├── TvChromeClient        全屏回调、控制台、进度兜底
+    ├── NativeBridge          RPC 路由 + 会话令牌 + 能力上报
+    ├── TvFocusEngine         注入器 + 按键映射 + 自检
+    ├── ShellConfig           线路、可信 host、UA
+    ├── BridgeLog             logcat + 落盘双写
+    └── WebView               React SPA + bridge.js / focus.js / focus.css
+                                     ↓ 阶段 3+
+    ├── TvSkin                TV 版式 CSS（1280×720 重排）
+    ├── LocalInputServer      手机扫码输入（局域网 HTTP）
+    └── PlayerActivity        media3 / ExoPlayer
 ```
 
-### 模块清单
+### 模块清单（阶段 1+2 已落地，其余为待做）
 
-| 文件 | 职责 | 估算行数 |
+| 文件 | 职责 | 状态 |
 |---|---|---|
-| `MainActivity.kt` | 宿主、生命周期、按键入口 | 240 |
-| `TvWebViewClient.kt` | 域名白名单、m3u8 拦截、错误页 | 150 |
-| `NativeBridge.kt` | 16 个方法路由 + 来源校验 | 320 |
-| **`TvCompat.kt`** | **documentStart 注入 polyfill + Chrome 83 CSS 基线（§5.5）** | **80** |
-| `TvFocusEngine.kt` | 注入 JS：候选集、最近邻、滚动、高亮 | 400 |
-| `TvSkin.kt` | TV 版式 CSS（16:9 重排）+ 深色层 | 450 |
-| `PlayerActivity.kt` | ExoPlayer + 遥控器播放条 | 320 |
-| `LocalInputServer.kt` | 二维码 + 输入回传 | 180 |
-| `ShellConfig.kt` | 线路、偏好、远程配置 | 120 |
+| `MainActivity.java` | 宿主、生命周期、`dispatchKeyEvent` 按键路由、全屏、failover 编排 | ✅ 已实现 |
+| `TvWebViewClient.java` | 导航边界、注入挂钩、主 frame 失败上报 | ✅ 已实现 |
+| `TvChromeClient.java` | `onShowCustomView` 全屏、控制台、进度兜底 | ✅ 已实现 |
+| `NativeBridge.java` | RPC 路由、会话令牌、能力如实上报 | ✅ 已实现 |
+| `TvFocusEngine.java` | assets 注入器、按键映射、`VERIFY` 自检 | ✅ 已实现 |
+| `ShellConfig.java` / `BridgeLog.java` | 线路 / 可信 host / UA / 日志双写 | ✅ 已实现 |
+| `assets/bridge.js` | RPC 桥 + Android 环境标记 + 3 个 polyfill | ✅ 已实现 |
+| `assets/focus.js` + `focus.css` | 候选集、轴向最近邻、滚动、inline 焦点环 | ✅ 已实现 |
+| `TvSkin` | TV 版式 CSS（1280×720 重排）+ 深色层 | ⏳ 阶段 3 |
+| `LocalInputServer` | 二维码 + 输入回传 | ⏳ 阶段 4 |
+| `PlayerActivity` | ExoPlayer + 遥控器播放条 | ⏳ 阶段 5 |
+
+**当前实现刻意用 Java + 手工 aapt2 构建**：7 个类、零第三方依赖、2 秒出 44KB APK。
+估时按「改一行立刻装机实测」的反馈速度算，比上 Gradle 拉 AGP 依赖更划算。
+等阶段 5 引入 media3 时再切 Gradle + Kotlin。
 
 **构建约束**：`minSdk 21` / `targetSdk 30+`，只能打 `armeabi-v7a`。不要引入 arm64-only 的 `.so`（某些版本的 media3 decoder 扩展、X5 内核需要核对架构）。media3-exoplayer 主库是纯 Kotlin + 系统 MediaCodec，32 位可用。
 
@@ -183,25 +231,43 @@ HTTP 200   4021 bytes   0.79s
 
 **不能搬的**：Swift 代码本身，0 行直接可用。UIKit/WKWebView 与 Android/WebView 的相似只到"都是 WebView"这一层。
 
-**TV 版反而更安全**：iOS 版之所以要做 origin 白名单，是因为工具箱允许用户填任意域名。电视上没有键盘，**这个入口直接砍掉**，白名单固定为两条内置线路 + 远程配置下发。攻击面反而小了。
+**TV 版攻击面反而更小**：iOS 版之所以要做 origin 白名单，是因为工具箱允许用户填任意域名。
+电视上没有键盘，**任意 URL 入口直接砍掉**；调试期换 URL 只走 `adb --es url`，不进产品 UI。
+但站点本身会 302 到中转域，所以「导航放行」和「桥授权」必须分开——详见下面实测后的修正。
 
 ### 桥的 Android 实现要点
 
-| | iOS | Android（本机 WebView 83） |
+| | iOS | Android（本机 WebView 83，阶段 1 实测） |
 |---|---|---|
 | 上行 | `webkit.messageHandlers.nativeBridge.postMessage` | **`@JavascriptInterface`**（`addWebMessageListener` 要 WebView 88+，本机不可用） |
 | 下行 | `evaluateJavaScript` | `evaluateJavascript` |
-| 来源校验 | `frameInfo.securityOrigin.host` | `shouldOverrideUrlLoading` 全域名拦截 + 一次性会话令牌 |
-| UA | 系统默认 | **必须覆盖**（系统浏览器伪造 iPad Safari 5.0.2，会让站点降级） |
+| 来源校验 | `frameInfo.securityOrigin.host` | **可信 host 才下发会话令牌** + 导航 scheme 拦截 |
+| 注入时机 | `WKUserScript(.atDocumentStart)` | `evaluateJavascript` ×3 幂等注入 + 站点四轮等桥重试 |
+| UA | 系统默认 | **必须覆盖**，但**不加** `AIMovieAndroidBrowser/1` 标记 |
 
-`addWebMessageListener` 需要 WebView 88 以上，本机 83 只能走 JS 接口。而 `@JavascriptInterface` 对该 WebView 里**所有 frame** 都暴露，所以必须同时做两件事：
+`addWebMessageListener` 需要 WebView 88 以上，本机 83 只能走 JS 接口。而 `@JavascriptInterface` 对该 WebView 里
+**所有 frame** 都暴露 —— 实测在 `file:///android_asset/security-probe.html` 上
+`typeof window.SoujuTvNative === "object"` 成立。所以必须同时做两件事：
 
-1. `shouldOverrideUrlLoading` 拦掉白名单外的所有跳转（TV 版本来就没有任意 URL 入口，白名单固定）
-2. 每次页面加载由 `documentStart` 注入一个随机令牌，桥方法校验令牌后才执行
+1. `shouldOverrideUrlLoading` 拦掉非 http(s) 导航、子 frame 越界跳转；SSL 错误一律 `cancel()`
+2. **只有 `ShellConfig.isTrustedHost()` 命中的主 frame 才注入桥与会话令牌**；
+   令牌每次主文档开始加载时轮换，`NativeBridge.post(json, token)` 校验通过才路由
 
-这两条合起来才等价于 iOS 版 `securityOrigin.host` 那道校验。**不能只做其一。**
+**这里修正了初版方案的一处判断**：原文写「拦掉白名单外的所有跳转」，实测不可行 —— 站点是域名轮换架构，
+顶层导航一旦严格拦截，中转域换了就打不开。所以「导航白名单」与「桥白名单」刻意分成两套：
+导航宽松（顶层 https 放行）、桥严格（可信 host + 令牌）。安全等价性反而更强，因为令牌才是权限边界；
+不可信页面即使拿到 Java 对象也调不动任何方法（实测 3 种伪造令牌全部 `REJECT`）。
 
-**能力上报要改**：B 阶段实现 ExoPlayer 后，`supportsNativePlayer` 才能报 `true`。A 阶段仍然报 `false`，让站点走 H5 播放器——和 iOS 版同样的取舍。
+另一处协议细节：站点 `native-environment` 会检查 `window.AiMovieAndroidBridge.postMessage` 是否为函数，
+但全量 bundle 里它**只是环境探针**，真正 RPC 一律走 `H5ShellNativeBridge.call`。我们补了这个对象作兼容，
+同时**刻意不在 UA 里加** `AIMovieAndroidBrowser/1` —— 那个标记会让站点走原生更新检查与午夜剧场原生全屏分支，
+A 阶段两者都没实现。`capabilities.platform:"android"` 已足够让 insets 解析器与评论区走正确分支。
+
+站点还会探测 `auth.getState` / `auth.restoreSession`：它靠 `capabilities.actions` 里有没有 `auth.*`
+判定原生登录态同步是否支持。如实不报、回 `NOT_IMPL`，站点即回退 web 登录态 —— **不要去实现这两个方法**。
+
+**能力上报要改**：B 阶段实现 ExoPlayer 后，`supportsNativePlayer` 才能报 `true`。A 阶段仍然报 `false`，
+让站点走 H5 播放器——和 iOS 版同样的取舍。
 
 ---
 
@@ -230,6 +296,23 @@ JS 侧三个要点：
 **视觉**：DOM 的 `:focus` 在 TV 上默认不可见，必须自己画。2px 描边用现有橙色强调色 + `transform: scale(1.06)`，`transition` 120ms。这是电视上"能看懂自己在哪"的唯一依据。
 
 **一处必须留的例外**：进入原生播放器后**停止注入按键**，否则播放条和视频本身抢事件。
+A 阶段用 `WebChromeClient.onShowCustomView` 判定全屏，全屏期间 `dispatchKeyEvent` 把按键完整交回系统。
+
+**阶段 2 实机踩出的四个坑**（都已修，实现在 `tv/assets/focus.js`）：
+
+| 现象 | 根因 | 修法 |
+|---|---|---|
+| 三个按钮里两个的焦点环是白 / 深墨色，只有第三个橙色 | 站点 `.movie-button-secondary:focus` 等规则特异性高于 `.tv-focused`，样式表里的 `!important` 仍会输 | JS 侧给焦点元素写 **inline `!important`**，切换时还原原值；CSS 留 `html body .tv-focused` 兜底 |
+| 弹窗打开后焦点跑进遮罩底下，用户看到「焦点不见了」 | 遮罩是兄弟节点，底下元素的 `getBoundingClientRect` 和 `visibility` 依然可见 | 候选集加 `elementFromPoint` **最上层命中**检查；视口外候选跳过该检查，否则永远滚不到下一行 |
+| 按键后头 120ms 焦点环颜色不对 | `transition: outline-color 120ms` 让颜色渐变 | 只过渡 `box-shadow`，outline 即时生效 |
+| 第一次按方向键没有任何高亮 | 站点自己 `focus` 过的元素没有 `.tv-focused` 标记 | `ensureMarked()` 给 `document.activeElement` 补标记 |
+
+另外两条实测结论：**滚动用直接改 `scrollTop` + `requestAnimationFrame` 合并**，`scrollIntoView({behavior:'smooth'})`
+在这颗 SoC 上确实会抖；**候选集要过滤嵌套**（`a` 里套 `button` 时只留内层），否则一次按键跳两级。
+`elementFromPoint` 过滤在弹窗打开时把候选从 83 收敛到 4–16 个，正好把焦点约束在模态内。
+
+按键轨迹取证（`adb logcat -s SoujuTV | grep I/key`）：连续右键 y=16→16→19，
+向下 x 偏移 26–27px，说明轴向加权（主方向 1、侧向 2.6）确实消掉了斜跳。
 
 ### 5.2 搜索输入（决定可用性）
 
@@ -404,14 +487,14 @@ adb shell cmd webviewupdate set-webview-implementation com.google.android.webvie
 |---|---|---|---|
 | **0** | JDK17 + SDK + 32 位空壳 APK + 安装取证 | 0.5 天 | ✅ **已完成**，见 §0.2 六项实测 |
 | ~~0.5~~ | 兼容层（polyfill + Chrome 83 CSS 基线） | 0.25 天 | 已并入阶段 3；裸跑证明不阻断启动 |
-| 1 | WebView 壳 + 桥 + 线路 failover | 2 天 | 首页能显示，桥日志有 `bridge-ok` |
-| 2 | **遥控器焦点引擎** | 2–3 天 | 6 列海报可用方向键遍历，无斜跳、无抖动 |
+| 1 | WebView 壳 + 桥 + 线路 failover | 2 天 | ✅ **已完成**，见 §0.3：站点调用 `getCapabilities`、令牌隔离、failover 全通过 |
+| 2 | **遥控器焦点引擎** | 2–3 天 | ✅ **已完成**，见 §0.3：83 个候选、无斜跳、橙色焦点环实机截图可见 |
 | 3 | TV 版式皮肤（1280×720 坐标系）+ 兼容层 | 2–3 天 | 无横向滚动条，字能看清，避开 5 个失效 CSS 特性 |
 | 4 | 手机扫码输入 | 1 天 | 手机输入后 TV 200ms 内出结果 |
 | 5 | ExoPlayer 播放 | 2–3 天 | 1080p 硬解，遥控器可控播放条 |
 
-阶段 0 已完成，**剩余约 8–12 个工作日**，业余节奏 2–3 周。
-工程骨架（`tv/`）、构建脚本、自签名证书都已落地，阶段 1 不用再从零搭环境。
+阶段 0/1/2 已完成，**剩余约 4–7 个工作日**（阶段 3+4+5），业余节奏 1–2 周。
+工程骨架、构建脚本、自签名证书、桥与焦点引擎都已落地，阶段 3 只需写 CSS 与锚点自检。
 
 ---
 
@@ -438,7 +521,7 @@ adb shell cmd webviewupdate set-webview-implementation com.google.android.webvie
 # 一次构建 + 安装
 bash tools/build-tv-apk.sh && adb install -r tv/build/souju-tv-debug.apk
 
-# 取证：App 自己打的全部日志（BOOT / JS / DOM / KEY / CONSOLE）
+# 取证：App 自己打的全部日志（BOOT / TOKEN / INJECT / VERIFY / STATE / DOM / KEY / bridge）
 adb logcat -d -s SoujuTV
 
 # 换页不用重编译
@@ -457,8 +540,8 @@ dscacheutil -q host -a name Android.local  # → 192.168.0.4
 python3 tools/tv-webview-probe.py --save /tmp/probe.json
 ```
 
-下一步是**阶段 1**：把空壳升级成正式 WebView 壳（域名白名单、桥、线路 failover）。
-`tv/` 里已有可直接运行的 manifest / MainActivity / 资源，不必再从零搭工程。
+下一步是**阶段 3**：TV 版式皮肤（1280×720 坐标系、左侧竖导航、6 列网格、24 CSS px 字号下限）
++ 兼容层接入 + 皮肤锚点自检。`tv/README.md` 有完整的构建、调试参数、按键表与日志前缀说明。
 
 ---
 
@@ -468,8 +551,9 @@ python3 tools/tv-webview-probe.py --save /tmp/probe.json
 |---|---|---|---|
 | **Chromium 83 缺运行时 API / CSS 特性** | **能力缺失已确认，首页未受影响** | 懒加载页可能报错、站点 CSS 版式塌陷 | §5.5 兼容层（0.25 天）+ TV 皮肤显式覆盖；裸跑首页已通过 |
 | **站点未来改版用上 Chrome 85+ 语法** | 中 | 解析级白屏，polyfill 补不了 | §5.6 升级系统 WebView；或保留远程注入 CSS/JS 通道做应急 |
-| 遥控器焦点手感差，做不出"顺" | 中高 | 可用性受损 | 焦点引擎是独立模块，可单独打磨与回归 |
-| 站点域名轮换导致线路失效 | 高（已知） | App 打不开 | 远程配置下发线路，不必重装 |
+| ~~遥控器焦点手感差，做不出"顺"~~ | **已排除** | — | 阶段 2 实机通过：轴向加权消掉斜跳、inline 焦点环清晰、模态约束生效 |
+| 站点域名轮换导致线路失效 | 高（已知） | App 打不开 | 两条内置线路 + MENU 手动切换 + `--es trusted` 临时补域；阶段 3 加远程配置下发 |
+| ~~桥被任意页面调用~~ | **已排除** | — | 令牌隔离实测 3 种伪造调用全 REJECT；`security-probe.html` 可重跑 |
 | ~~`adb install` 被安装校验拦截~~ | **已排除**（实测 `Success`） | — | 两条 `settings put global` 与 U 盘兜底留作备用 |
 | 32 位 ABI 导致某个依赖装不上 | 中（空壳已验证通过） | 编译/运行时失败 | 空壳不含 `.so`，天然兼容；将来引入 ExoPlayer 时核对 `.so` 架构 |
 | 杜比视界未必对三方 App 开放 | 中 | B 阶段只能拿到 HDR10/HLG | 实测；不承诺 DV，UI 上不标 DV 角标 |
@@ -481,9 +565,13 @@ python3 tools/tv-webview-probe.py --save /tmp/probe.json
 
 ## 10. 一句话建议
 
-阶段 0 已完成，接下来先做 **1 + 2**（约 5 天）：正式 WebView 壳（桥、域名白名单、线路 failover）+ 遥控器焦点引擎。
+阶段 0/1/2 已完成，接下来做 **阶段 3：TV 版式皮肤 + 兼容层 + 锚点自检**（约 2–3 天）。
 
-「能装、能显示」已经用实机证明，不必再验证；剩下的最大不确定性只在焦点手感上。
-兼容层和 TV 皮肤并入阶段 3 一起做，是因为实测证明它们不阻断启动，可以边写边看效果。
+「能装、能显示、遥控器能走」已用实机证明，剩下的最大问题是**可用性**：
+12:00 的实机截图里，页面仍是桌面窄栏 —— 左侧栏约 200 CSS px、海报和文字对 2.5m 观看距离过小。
+这不是美化，是不做就没法在沙发上用。
+
+阶段 3 顺带把 `shell.reportHealth` 锚点自检接上（协议位已在桥里留好），
+这样站点改版导致选择器失效时会主动报警，而不是等用户发现「突然变丑了」。
 
 系统 WebView 已决定不动（§5.6），没有待拍板事项。

@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><title>搜剧TV · 桥权限探针</title>
+<style>body{background:#0E0E10;color:#F2F1ED;font:20px monospace;padding:40px;white-space:pre-wrap}</style>
+</head>
+<body>
+<div id="out">运行中…</div>
+<script>
+(function () {
+  var lines = [];
+  function log(s) { lines.push(s); try { console.log('SOUJUTV_SEC ' + s); } catch (e) {} }
+  var n = window.SoujuTvNative;
+  log('nativeObject=' + (typeof n));
+  log('hasPost=' + !!(n && typeof n.post === 'function'));
+  log('bridgeObject=' + (typeof window.H5ShellNativeBridge));
+  var payload = JSON.stringify({
+    operation_id: 'security-probe-1', module: 'app',
+    method: 'getCapabilities', params: {}
+  });
+  // 这个页面是 file:// 主文档，host 为空、不可信 → 不应下发任何令牌。
+  // 三次调用分别用伪造令牌、空令牌、猜测令牌，全部应被 NativeBridge REJECT。
+  ['fake-token', '', '3d3dc6c6'].forEach(function (t, i) {
+    try { n.post(payload, t); log('call' + (i + 1) + ' sent(token=' + t + ')'); }
+    catch (e) { log('call' + (i + 1) + ' threw ' + e); }
+  });
+  log('EXPECT: 3 条 REJECT，且无 app.getCapabilities 回包');
+  document.getElementById('out').textContent = lines.join('\n');
+})();
+</script>
+</body>
+</html>

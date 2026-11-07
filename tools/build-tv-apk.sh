@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# 用 Android SDK 命令行工具直接打最小 WebView 壳 APK，不依赖 Gradle / Maven。
+# 用 Android SDK 命令行工具直接打 TV APK，不依赖 Gradle / Maven。
 #
-# 存在的理由：阶段 0 只需要验证「自签名 APK 能不能装进电视并跑起 WebView」。
-# 上 Gradle 要拉 AGP 与一堆依赖，把「装不装得上」这个判断拖到十几分钟后才揭晓，
-# 不值得。等安装链路验证通过，再在同一份 manifest / 源码上加 Gradle 工程。
+# 阶段 0 用它验证「装不装得上」；阶段 1+2 继续沿用 —— 电视端目前只有 7 个 Java 类，
+# 没有第三方依赖，手工链路 2 秒出包、改一行就能装机实测，比等 AGP 同步快得多。
+# 等 B 阶段引入 media3 / ExoPlayer 时再切 Gradle。
 #
 # 依赖（由 docs/tv-feasibility.md §8 记录的安装步骤准备）：
 #   ~/Library/Android/jdk17/home                 Temurin JDK 17
@@ -55,13 +55,15 @@ echo "=== 2/6 aapt2 link（二进制 manifest + 资源 + assets）==="
   --auto-add-overlay \
   --java "$OUT/gen"
 
-echo "=== 3/6 javac ==="
+echo "=== 3/6 javac（tv/src 下全部 Java 源 + aapt2 生成的 R.java）==="
 GEN_SOURCES="$(find "$OUT/gen" -name '*.java' 2>/dev/null || true)"
+SOURCE_FILES="$(find "$TV/src" -name '*.java' | sort)"
+echo "  $(echo "$SOURCE_FILES" | wc -l | tr -d ' ') 个源文件"
 # shellcheck disable=SC2086
 "$JAVA_HOME/bin/javac" -source 8 -target 8 -encoding UTF-8 -Xlint:-options \
   -classpath "$JAR" \
   -d "$OUT/classes" \
-  "$TV/src/com/wuxiaogang/soujutv/MainActivity.java" $GEN_SOURCES
+  $SOURCE_FILES $GEN_SOURCES
 
 echo "=== 4/6 d8 → classes.dex ==="
 # shellcheck disable=SC2046

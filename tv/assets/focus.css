@@ -1,0 +1,32 @@
+/* focus.css — 电视焦点态。Chromium 83 基线，只用 83 支持的特性。
+ * 禁用清单：flex gap / aspect-ratio / :has() / :focus-visible / inset / content-visibility
+ * 焦点环用 outline + box-shadow 自己画：DOM 的 :focus 在 TV 上默认不可见，
+ * 这是「能看懂自己在哪」的唯一依据。
+ */
+
+/* 焦点环的主规则。JS 侧还会额外写 inline !important，这里是样式表兜底：
+   站点按钮带 .movie-button-secondary:focus 这类高特异性规则时，纯样式表可能输。 */
+html body .tv-focused {
+  outline: 3px solid #FF8A3D !important;
+  outline-color: #FF8A3D !important;
+  outline-offset: 3px !important;
+  -webkit-box-shadow: 0 0 0 7px rgba(255, 138, 61, 0.25) !important;
+  box-shadow: 0 0 0 7px rgba(255, 138, 61, 0.25) !important;
+  border-radius: 6px;
+  /* 只过渡 box-shadow，不让 outline-color 渐变：焦点环必须即时可见，
+     否则按方向键的头 120ms 里用户看不清焦点落在哪。 */
+  -webkit-transition: box-shadow 120ms ease;
+  transition: box-shadow 120ms ease;
+}
+
+/* 焦点元素滚动到视口时留出余量，避免贴边看不全。
+   用 scroll-margin-top/bottom，Chrome 69+ 支持，83 可用。 */
+[data-tv-focusable], a[href], button, [role="button"] {
+  scroll-margin-top: 80px;
+  scroll-margin-bottom: 80px;
+}
+
+/* TV 上鼠标指针没有意义，避免站点 hover 态一直挂着 */
+@media (hover: none) {
+  * { -webkit-tap-highlight-color: transparent; }
+}

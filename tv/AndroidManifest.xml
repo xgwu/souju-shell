@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.wuxiaogang.soujutv"
-    android:versionCode="1"
-    android:versionName="0.1.0">
+    android:versionCode="2"
+    android:versionName="0.2.0">
 
     <!-- 电视是 Android 11 / API 30，用户态 armeabi-v7a（32 位）。
          本 APK 不含任何 .so，因此没有 ABI 约束，天然可在 32 位设备安装。 -->
