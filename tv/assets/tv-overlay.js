@@ -656,7 +656,7 @@
       if (url) {
         playUrl = url;
         log('TVEPISODE', { resolved: url.slice(-40), afterMs: Date.now() - start });
-        startNativePlay(url, epIndex);
+        startNativePlay(url, epIndex, 'pick');
         return;
       }
       if (Date.now() - start > timeoutMs) {
@@ -676,6 +676,9 @@
       2.4 秒后再切，避免两个动作抢同一个 <video>。 */
   window.__tvSyncThenPick = function (sec, idx) {
     var s = Number(sec || 0);
+    /* 直通会话里换集：先把遮罩切回「正在切换剧集」，用户在播放器里选完集
+       到新集起播这段时间，看到的是遮罩而不是详情页。 */
+    if (window.__tvDpSwitch) { window.__tvDpSwitch(); }
     if (s > 2) {
       syncProgress(s);
       setTimeout(function () { pickEpisode(idx, true); }, 2400);
@@ -760,16 +763,21 @@
       setTimeout(function () { syncProgress(sec); }, 260);
     }
     /* 直通播放：用户看到的「上级页面」应该是首页，不是被遮住的详情页。
-       等 2.6 秒让 syncProgress 那 2.1 秒的静音回写跑完，再回退一步。 */
-    if (dpSession && (reason === 'back' || reason === 'completed')) {
+       等 2.6 秒让 syncProgress 那 2.1 秒的静音回写跑完，再回退一步；
+       遮罩在这 2.6 秒里继续盖着，只在回到首页（popstate）时才撤掉。 */
+    if (dpActive && (reason === 'back' || reason === 'completed')) {
+      dpPhase = 'exit';
       dpSession = false;
-      dpStarted = false;
-      dpRevealed = false;
+      if (!q('.tv-dp')) { dpOverlay(); }
+      dpHint(reason === 'completed' ? '这一集看完了，正在返回首页…' : '正在返回首页…');
+      log('TVDP_EXIT', { reason: reason });
       setTimeout(function () {
         try { window.history.back(); } catch (e) {}
       }, 2600);
     }
     if (reason === 'next') {
+      /* 直通会话里：立刻把遮罩切回「正在切换剧集」，用户看不到详情页 */
+      if (dpActive) { window.__tvDpSwitch(); }
       /* 让进度先落库，再切下一集 */
       setTimeout(advanceEpisode, 3400);
     } else if (reason === 'completed') {
@@ -991,9 +999,17 @@
 
   /* ── 原生播放（阶段 5） ──────────────────────────────────────── */
 
-  function startNativePlay(overrideUrl, epIndex) {
+  var lastNativeUrl = '';
+  var lastNativeAt = 0;
+
+  function startNativePlay(overrideUrl, epIndex, note) {
     var url = overrideUrl || playUrl || currentMedia();
     if (!url) { toast('当前页没有可直接播放的地址'); return; }
+    /* 直通播放时 dpTick 与 pickEpisode 自己的轮询会同时发现同一个地址，
+       不加这道闸门就会连开两个播放器 Activity（叠在一起，返回要按两次）。 */
+    if (url === lastNativeUrl && Date.now() - lastNativeAt < 3000) { return; }
+    lastNativeUrl = url;
+    lastNativeAt = Date.now();
     var v = q('video');
     var pos = v && typeof v.currentTime === 'number' ? Math.round(v.currentTime * 1000) : 0;
     if (overrideUrl) { pos = 0; }
@@ -1008,6 +1024,11 @@
     for (var i = 0; i < list.length; i++) { labels.push(list[i].label); }
     var idx = typeof epIndex === 'number' ? epIndex : currentEpIndex(list);
     epList = list;
+
+    /* 直通会话：不管是首次起播、播放器里换集还是「下一集」，只要交给原生播放器，
+       遮罩就从「等地址」切到「已起播」（不撤 —— 播放器会整块盖住 WebView，
+       留着它，用户退出播放器时看到的是遮罩而不是详情页）。 */
+    dpToPlaying(note || (overrideUrl ? 'pick' : 'resolve'), url);
 
     call('playback', 'playNative', {
       url: url, title: title, positionMs: pos,
@@ -1057,12 +1078,14 @@
 
   window.addEventListener('popstate', function () {
     close();
-    /* 起播等待期间用户按了返回（电视上主线程被详情页解析卡住时，
-       返回键会被排队几秒才派发）—— 一旦回到首页就取消这次起播，
-       否则遮罩撤下、人已经在首页，播放器还会在几百毫秒后突然弹出来。
-       实测就是这个竞态：BACK → goBack(-1) 与 TVDP_START 只差 93ms。 */
-    if (dpGet() && !dpSession && location.pathname === '/') {
-      log('TVDP_CANCEL', { note: 'popstate', waitedMs: Math.round(Date.now() - (dpGet() || {}).t) });
+    /* 回到首页 = 直通会话收尾，撤遮罩、清状态。两种情况都会走到这里：
+       ① 用户在看遮罩时按了返回（电视上主线程被详情页解析卡住时返回键会被
+          排队几秒才派发，实测和起播只差 93ms，不处理就会「人已回首页、播放器
+          又自己弹出来」）；② 播放器退出后我们主动 history.back() 回首页。 */
+    if (dpActive && location.pathname === '/') {
+      var d = dpGet() || {};
+      log('TVDP_CANCEL', { note: 'popstate', phase: dpPhase,
+        waitedMs: d.t ? (Date.now() - d.t) : -1 });
       dpReset();
     }
   }, false);
@@ -1079,16 +1102,22 @@
      在后台的详情页里点对应集，站点重新解析后播放器重开，链路与阶段 6 一致。 */
   var DP_KEY = '__tvDirectPlay';
   var dpTimer = null;
-  var dpStarted = false;
+  /** 一次直通会话是否在进行：从点海报开始，到回到首页结束。
+      遮罩在整个会话期间**一直挂着**（原生播放器是独立 Activity，会整块盖住
+      WebView，用户看不到遮罩），换来的是换集回来时零闪烁 —— 不会再闪一下详情页。 */
+  var dpActive = false;
+  /** resolve（首次解析）| switch（换集重解析）| playing（播放器已起）| exit（正在回首页） */
+  var dpPhase = '';
   var dpSession = false;
-  var dpRevealed = false;
-  /** 点海报那一刻的媒体水位：序号、<video> 元素、它当时挂的地址。 */
+  /** 进入「等地址」那一刻的媒体水位：序号、<video> 元素、它当时挂的地址。 */
   var dpSeq = 0;
   var dpVideo = null;
   var dpOldSrc = '';
   /** 这一轮锁定的详情页路径。遮罩盖着的时候用户仍可能盲按 OK/方向键把站点
       导航到别的片，路径一变就该收手，不能等地址就绪再「隔空起播」。 */
   var dpPath = '';
+  /** 「线路较慢」只记一次日志，别每 300ms 刷一条 */
+  var dpSlowLogged = false;
 
   function dpGet() {
     try { return JSON.parse(sessionStorage.getItem(DP_KEY) || 'null'); } catch (e) { return null; }
@@ -1098,6 +1127,11 @@
       if (v) { sessionStorage.setItem(DP_KEY, JSON.stringify(v)); }
       else { sessionStorage.removeItem(DP_KEY); }
     } catch (e) {}
+  }
+
+  function dpHint(txt) {
+    var h = q('.tv-dp-hint');
+    if (h && txt && h.textContent !== txt) { h.textContent = txt; }
   }
 
   function dpOverlay() {
@@ -1114,7 +1148,7 @@
     var t = make('div', 'tv-dp-title');
     t.textContent = dp.title || '正在起播';
     var hint = make('div', 'tv-dp-hint');
-    hint.textContent = '正在解析线路…';
+    hint.textContent = dpPhase === 'switch' ? '正在切换剧集…' : '正在解析线路…';
     var bar = make('div', 'tv-dp-bar');
     bar.appendChild(make('i', ''));
     copy.appendChild(t);
@@ -1132,49 +1166,98 @@
     if (el && el.parentNode) { el.parentNode.removeChild(el); }
   }
 
-  /** 把直通播放的状态彻底复位。缺了它，一轮播完后 dpStarted 永远停在 true，
+  /** 把直通会话彻底复位。缺了它，一轮播完后状态永远停在「已起播」，
       这之后所有海报点击都会被 dpBegin 之前的守卫静默掉（实测第二次点海报
       直接落到了普通详情页）。 */
   function dpReset() {
-    dpStarted = false;
-    dpRevealed = false;
+    dpActive = false;
+    dpPhase = '';
     dpSession = false;
     dpPath = '';
+    dpSlowLogged = false;
     if (dpTimer) { clearInterval(dpTimer); dpTimer = null; }
     dpClose();
     dpSet(null);
   }
 
-  function dpStart(src) {
-    var dp = dpGet();
-    dpStarted = true;
-    dpSession = true;
-    dpSet(null);
-    if (dpTimer) { clearInterval(dpTimer); dpTimer = null; }
-    startNativePlay(src, 0);
-    setTimeout(dpClose, 400);
-    log('TVDP_START', { src: src.slice(0, 64), waitedMs: dp ? (Date.now() - dp.t) : -1 });
+  /** 进入「等地址」阶段：首次解析（resolve）和换集重解析（switch）都走这里。
+      t 同时用来算超时和提示里的秒数。 */
+  function dpWait(phase) {
+    var dp = dpGet() || {};
+    dpActive = true;
+    dpPhase = phase;
+    dpPath = '';
+    dpSlowLogged = false;
+    dpSeq = mediaSeq;
+    dpVideo = q('video');
+    dpOldSrc = dpVideo ? (dpVideo.currentSrc || dpVideo.getAttribute('src') || '') : '';
+    var rec = {
+      t: Date.now(), phase: phase,
+      title: dp.title || '', poster: dp.poster || ''
+    };
+    dpSet(rec);
+    dpOverlay();
+    dpHint(phase === 'switch' ? '正在切换剧集…' : '正在解析线路…');
+    if (!dpTimer) { dpTimer = setInterval(dpTick, 300); }
+    return rec;
   }
 
+  /** 播放器一起播就切到 playing：遮罩留着（被播放器整块盖住），但不再轮询。
+      首次起播、换集、下一集都收敛到这里。 */
+  function dpToPlaying(note, src) {
+    if (!dpActive) { return false; }
+    var dp = dpGet() || {};
+    dpSession = true;
+    dpPhase = 'playing';
+    if (dpTimer) { clearInterval(dpTimer); dpTimer = null; }
+    dp.phase = 'playing';
+    dpSet(dp);
+    dpHint('正在起播…');
+    log('TVDP_START', {
+      src: src ? src.slice(0, 64) : '', note: note || '',
+      waitedMs: dp.t ? (Date.now() - dp.t) : -1
+    });
+    return true;
+  }
+
+  function dpStart(src) {
+    if (dpPhase === 'playing') { return; }   // pickEpisode 自己那条路可能已经起播
+    startNativePlay(src, 0, dpPhase === 'switch' ? 'switch' : 'resolve');
+  }
+
+  /** 播放器里换集 / 下一集：把遮罩切回「等地址」，站点在后台重新解析。
+      用户从播放器退出时看到的是遮罩而不是详情页 —— 这正是要的效果。 */
+  window.__tvDpSwitch = function (label) {
+    if (!dpActive) { return false; }
+    dpWait('switch');
+    if (label) { dpHint('正在切换剧集… ' + label); }
+    log('TVDP_SWITCH', { label: label || '' });
+    return true;
+  };
+
   function dpTick() {
+    if (!dpActive) {
+      if (dpTimer) { clearInterval(dpTimer); dpTimer = null; }
+      return;
+    }
+    /* playing / exit 两个阶段不需要轮询：playing 时播放器盖着，exit 时在等 history.back */
+    if (dpPhase === 'playing' || dpPhase === 'exit') { return; }
     var dp = dpGet();
     if (!dp) {
       if (dpTimer) { clearInterval(dpTimer); dpTimer = null; }
       return;
     }
-    if (dpStarted) { return; }
     var waited = Date.now() - dp.t;
-    /* 点完海报又自己退回首页 = 用户放弃这次起播。留 1.5 秒宽限，
+    var path = location.pathname;
+    /* 回到首页 = 这一轮结束（用户按返回放弃，或播完自动回来）。留 1.5 秒宽限，
        因为 dpBegin 那一刻路径还是「/」，SPA 要几十毫秒后才换到详情页。 */
-    if (waited > 1500 && location.pathname === '/') {
-      log('TVDP_CANCEL', { waitedMs: Math.round(waited) });
+    if (waited > 1500 && path === '/') {
+      log('TVDP_CANCEL', { note: 'home', phase: dpPhase, waitedMs: Math.round(waited) });
       dpReset();
       return;
     }
-    /* 遮罩是挂在 body 上的普通 div，SPA 换页不会清掉它；万一被清掉就补一块。
-       但「已经主动撤掉」（10 秒回退）之后不要再补，否则会遮住用户正在操作的页面。 */
-    if (!dpRevealed && !q('.tv-dp')) { dpOverlay(); }
-    var path = location.pathname;
+    /* 遮罩是挂在 body 上的普通 div，SPA 换页不会清掉它；万一被清掉就补一块。 */
+    if (!q('.tv-dp')) { dpOverlay(); }
     if (path.indexOf('/player/') !== 0) { return; }
     if (!dpPath) { dpPath = path; }
     else if (path !== dpPath) {
@@ -1182,33 +1265,45 @@
       dpReset();
       return;
     }
+    /* 遮罩盖着时站点自己的 <video> 在后台解析，可能自己出声 —— 一律静音，
+       声音只给原生播放器。 */
+    var v = q('video');
+    if (v) { try { if (!v.muted) { v.muted = true; } } catch (e) {} }
     /* 判据必须和工具栏「原生播放」完全一致（currentMedia）：站点把整部 mp4
        藏在 .image 路径下伪装（CDN 谎报 image/*，字节是 ftyp isom），
        按扩展名过滤会把真直链当成封面图跳过 —— 实测就是这样一直等到超时。
        但 currentMedia 会顺着沿用 SPA 换页后残留的 <video>，所以再加两道
-       新鲜度闸门：① 这一轮得真有媒体请求；② 不能还是点之前那个元素那个地址。 */
-    var v = q('video');
+       新鲜度闸门：① 这一轮得真有媒体请求；② 不能还是原地那个元素那个地址。 */
     var src = currentMedia();
-    var stale = (v && v === dpVideo && src && src === dpOldSrc);
-    if (src && mediaSeq > dpSeq && !stale) {
-      dpStart(src);
-      return;
+    /* 换集阶段不抢起播：pickEpisode 自己会轮询并用「正确的第几集」调
+       startNativePlay。这里再抢一次会和它撞车 —— 实测旧集换个 HLS 变体地址
+       （index.m3u8 → 3000k/hls/mixed.m3u8）就能骗过新鲜度判断，结果先黑屏
+       播回旧集，4 秒后新集的播放器才盖上来。 */
+    if (dpPhase !== 'switch') {
+      var stale = (v && v === dpVideo && src && src === dpOldSrc);
+      if (src && mediaSeq > dpSeq && !stale) {
+        dpStart(src);
+        return;
+      }
     }
     var sec = Math.round(waited / 1000);
-    var hint = q('.tv-dp-hint');
-    if (hint) { hint.textContent = '正在解析线路… ' + sec + 's'; }
-    /* 站点这条路本身不稳（实测同一个片 11s~40s 都有，换线路更慢）。
-       10 秒还没拿到地址就把遮罩撤掉、把详情页交还给用户 —— 不能让人对着
-       一张海报干等；但监听继续跑，媒体一就绪仍然直接进播放器。
-       60 秒彻底放弃，避免在别的页面乱弹播放器。 */
-    if (waited > 10000 && !dpRevealed) {
-      dpRevealed = true;
-      dpClose();
-      log('TVDP_REVEAL', { waitedMs: Math.round(waited) });
-    }
+    var base = dpPhase === 'switch' ? '正在切换剧集… ' : '正在解析线路… ';
+    /* 用户明确要求「一直停在起播页」，所以不再定时把详情页甩出来。
+       超过 1 分钟只换一句提示，告诉他还能按返回自己退出。 */
     if (waited > 60000) {
-      dpSet(null);
-      log('TVDP_TIMEOUT', {});
+      if (!dpSlowLogged) {
+        dpSlowLogged = true;
+        log('TVDP_SLOW', { phase: dpPhase, waitedMs: Math.round(waited) });
+      }
+      dpHint('线路较慢，仍在解析… ' + sec + 's（按返回可退出）');
+    } else {
+      dpHint(base + sec + 's');
+    }
+    /* 3 分钟还拿不到地址，基本可以判定这条线路是死的 —— 这时才退回详情页。 */
+    if (waited > 180000) {
+      log('TVDP_TIMEOUT', { phase: dpPhase, waitedMs: Math.round(waited) });
+      dpReset();
+      toast('线路一直没解析出来，已回到详情页 —— 可按 MENU 换一条线路再试');
     }
   }
 
@@ -1216,25 +1311,20 @@
     var title = text(link.querySelector('.home-feed-card-title, h3')) || '';
     var img = link.querySelector('img');
     var poster = img ? (img.currentSrc || img.getAttribute('src') || '') : '';
-    dpStarted = false;
-    dpRevealed = false;
-    dpPath = '';
-    dpSeq = mediaSeq;
-    dpVideo = q('video');
-    dpOldSrc = dpVideo ? (dpVideo.currentSrc || dpVideo.getAttribute('src') || '') : '';
-    dpSet({ t: Date.now(), title: title, poster: poster });
-    dpOverlay();
-    if (!dpTimer) { dpTimer = setInterval(dpTick, 300); }
+    dpSession = false;
+    dpActive = false;
+    dpSet({ t: Date.now(), title: title, poster: poster });   // 先把标题海报放进记录
+    dpWait('resolve');
     log('TVDP_BEGIN', { title: title.slice(0, 24) });
   }
 
   /* 只在首页的「海报 / 继续观看」卡片上触发；不 preventDefault ——
      站点自己的 SPA 路由必须照常跑，否则详情页不会去解析播放地址。 */
   document.addEventListener('click', function (ev) {
-    /* 回到首页且不在播放会话里 = 上一轮已经收尾，先复位再判断，
-       否则 dpStarted 的残留会把这一轮的所有海报点击都吃掉。 */
-    if (dpStarted && !dpSession && location.pathname === '/') { dpReset(); }
-    if (mode || dpStarted) { return; }
+    /* 回到首页 = 上一轮已经收尾，先复位再判断，否则会话标记的残留会把
+       这一轮的所有海报点击都吃掉。 */
+    if (dpActive && location.pathname === '/') { dpReset(); }
+    if (mode || dpActive) { return; }
     if (location.pathname !== '/') { return; }
     var t = ev.target;
     if (!t || !t.closest) { return; }
@@ -1246,8 +1336,9 @@
   window.__tvDirectPlayState = function () {
     var dp = dpGet();
     return JSON.stringify({
-      pending: !!dp, started: dpStarted, session: dpSession, revealed: dpRevealed,
-      title: dp ? dp.title : '', waitedMs: dp ? (Date.now() - dp.t) : -1,
+      active: dpActive, phase: dpPhase, session: dpSession,
+      mask: !!q('.tv-dp'),
+      title: dp ? dp.title : '', waitedMs: dp && dp.t ? (Date.now() - dp.t) : -1,
       mediaSeq: mediaSeq, dpSeq: dpSeq
     });
   };

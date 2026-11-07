@@ -1,6 +1,6 @@
 # 搜剧 AI 电视版 · 阶段 1~8 工程
 
-**当前状态**：`0.8.0` / build 9 —— WebView 壳 + 遥控器焦点引擎 + TV 版式皮肤 +
+**当前状态**：`0.8.1` / build 10 —— WebView 壳 + 遥控器焦点引擎 + TV 版式皮肤 +
 手机扫码输入 + 原生播放器 + 选集面板 / 进度回写 / 登录入口 / 远程线路配置 +
 首屏揭幕门 / 下划线导航 / 紧凑主推条 / 首屏排序 / 焦点放大 / 滚动补间 +
 **首屏取舍（只留继续观看 + 海报墙）/「追剧」菜单 / 点海报直进全屏播放器**，
@@ -234,9 +234,9 @@ MutationObserver 触发成 220ms 死循环；1.2k 宽卡按中心点算侧向偏
    第二下才到「今晚首选」。不影响使用，但第一下看起来「没动」。
 7. 站点首页数据本身要 7~10 秒才齐（继续观看 7.6s、海报真卡 7~10s）。
    占位只保证**位置**不跳，内容仍会陆续填进来 —— 想更快只能预取站点接口，属于改站点侧的事。
-8. 点海报到起播仍要 10~26 秒（站点详情页解析线路的固有耗时，关掉皮肤也一样，实测 14/27 秒）。
-   直通播放能保证的是「这段时间你看到的是海报遮罩，不是详情页」；
-   10 秒还没地址会把详情页交还给你，地址一就绪仍会自动切进播放器。
+8. 点海报到起播仍要 10~28 秒（站点详情页解析线路的固有耗时，关掉皮肤也一样，实测 14/27 秒）。
+   直通播放能保证的是「这段时间你一直停在海报遮罩上，不会跳详情页，也不会换集后跳回详情页」；
+   超过 1 分钟只会换提示（按返回可退出），3 分钟仍无地址才退回详情页。
 
 ## 下一步
 
@@ -384,17 +384,26 @@ JSON 格式（未识别的字段一律忽略，网络失败静默回落到内置
    因为站点把 mp4 藏在 `.image` / `.jpg` 路径下伪装；但**还要加新鲜度闸门**
    （`mediaSeq` + 元素/地址比对），否则 SPA 换页后残留的 `<video>` 会让你播上一部片。
 4. 起播等待期间按返回要能取消：主线程被详情页解析占满时 BACK 会排队数秒才派发，
-   实测和 `TVDP_START` 只差 93ms。`popstate` 里判「回首页 + 非播放会话」即 `dpReset()`。
+   实测和 `TVDP_START` 只差 93ms。`popstate` 里判「回首页」即 `dpReset()`。
+5. **遮罩是会话级的，不是起播级的**（`0.8.1`）：从点海报一直挂到回到首页，
+   `playing` 阶段也不撤 —— 播放器是独立 Activity，会整块盖住 WebView，留着它
+   换来「换集回来零闪烁」。早期那版「10 秒没地址就撤遮罩」正是用户看到的
+   「缓冲中跳回详情页」，已删除。
+6. 换集阶段禁止 `dpTick` 抢起播（交给 `pickEpisode` 自己带集号起播），否则旧集
+   换个 HLS 变体地址（`index.m3u8` → `3000k/hls/mixed.m3u8`）就能骗过新鲜度判断，
+   实测会先黑屏播回旧集、4 秒后新集才盖上来。
 
 ### 日志（直通播放）
 
 | 日志 | 含义 |
 |---|---|
 | `TVDP_BEGIN {"title"}` | 点了海报，遮罩已挂上，开始轮询 |
-| `TVDP_REVEAL {"waitedMs"}` | 10 秒还没地址 → 撤遮罩、把详情页交还用户（监听继续跑） |
-| `TVDP_START {"src","waitedMs"}` | 拿到直链，交给原生播放器起播（实测 10.3~25.8 秒） |
-| `TVDP_CANCEL {"note":"popstate","waitedMs"}` | 用户中途退回首页，取消这次起播 |
-| `TVDP_TIMEOUT` | 60 秒彻底放弃 |
+| `TVDP_START {"src","note","waitedMs"}` | 拿到直链交给原生播放器；`note` = `resolve`（首播）/ `pick`（换集） |
+| `TVDP_SWITCH {"label"}` | 播放器里换集/下一集，遮罩切回「正在切换剧集…」 |
+| `TVDP_EXIT {"reason"}` | 播放器退出，遮罩换「正在返回首页…」，2.6 秒后 `history.back()` |
+| `TVDP_CANCEL {"note","phase"}` | 会话收尾（`popstate` 落地首页 / 用户中途返回 / 路径被改） |
+| `TVDP_SLOW` | 超过 60 秒仍没地址，提示换成「线路较慢…（按返回可退出）」，**不撤遮罩** |
+| `TVDP_TIMEOUT` | 3 分钟仍解析不出，才退回详情页 |
 
 ### 阶段 8 实机验证（2026-11-07 18:5x，鹤7 Pro 75R675C）
 
@@ -403,8 +412,8 @@ JSON 格式（未识别的字段一律忽略，网络失败静默回落到内置
 | 构建 / 安装 | `0.8.0` / build 9 / 368KB，v1+v2+v3 通过 |
 | **首屏** | 导航「首页,追剧,短剧,历史,片单」；继续观看 5 卡一行 y≈106~242；海报第一行 y≈296（两行可见） |
 | **追剧页** | `data-tv-page="updates"` 生效，广告块消失；滚动容器 `.watch-calendar-page-content`（1693/574），焦点引擎 `reveal()` 自动接管（`st=468 / ring=1`） |
-| **直通播放** | `TVDP_BEGIN` → `TVDP_REVEAL 10085ms` → `TVDP_START 25768ms` → `PLAYER_OPEN ep=0/8` → `PLAYING duration=2782302` |
-| **换集** | 面板 `pick=1` → `TVPROGRESS {synced:14}` → `TVEPISODE afterMs=6693` → `PLAYER_OPEN ep=1/8` → `PLAYING duration=3163086` |
-| **退出** | `ACTIVITY_RESULT reason=back pos=18400` → `TVPROGRESS {synced:16}` → `location.pathname="/"`，`__tvDirectPlayState()` 全字段归零 |
+| **直通播放** | `TVDP_BEGIN` → `TVDP_START note=resolve 13695ms` → `PLAYER_OPEN ep=0/8`；13 秒时抓图仍是「正在解析线路… 13s」，**不再回退详情页** |
+| **换集** | 面板 `pick=1` → `TVDP_SWITCH` → 3 秒时抓图「正在切换剧集… 3s」→ `TVPROGRESS {synced:17}` → `TVEPISODE afterMs=6976` → `TVDP_START note=pick 9630ms` → `PLAYER_OPEN ep=1/8`（只开一次，无黑屏旧集） |
+| **退出** | `TVDP_EXIT` → 2.6 秒 → `TVDP_CANCEL note=popstate phase=exit` → `location.pathname="/"`，`mask:false / active:false` |
 | **中途返回** | `BACK → goBack(-1)` → `TVDP_CANCEL waitedMs=2512`；之后 30 秒无幽灵起播 |
 | **二次点击** | 同会话内连点两张海报都能触发（修掉 `dpStarted` 残留后） |
