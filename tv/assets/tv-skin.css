@@ -83,38 +83,49 @@ html[data-tv-skin="on"] .movie-menu-scrim {
    原本是右上角 235×44 / 13px 的小 tab；改成内容区顶部一整行。 */
 html[data-tv-skin="on"] .app-primary-nav-desktop {
   position: fixed !important;
-  top: 8px !important;
+  /* 顶到屏幕最上沿并铺满整宽：导航是 fixed 的，海报墙会从它下面滚过去，
+     底色透明时「首页/短剧/历史/片单」会直接压在海报上（实测很难看）。 */
+  top: 0 !important;
   left: 40px !important;
-  /* 右侧 340px 让给 .tv-toolbar（搜索 / 选集 / 账号 / 手机输入 / 原生播放） */
-  right: 340px !important;
+  /* 整宽铺到右边，工具条（z-index 70）浮在它上面即可 */
+  right: 40px !important;
   bottom: auto !important;
   width: auto !important;
   max-width: none !important;
-  height: 58px !important;
-  padding: 0 8px !important;
+  height: 66px !important;
+  padding: 8px 8px 0 8px !important;
   margin: 0 !important;
   border: 0 !important;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.10) !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
   border-radius: 0 !important;
-  background: transparent !important;
+  background: #0E0E10 !important;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.55) !important;
   justify-content: flex-start !important;
   z-index: 60 !important;
 }
+/* 阶段 7：选中态只留下划线。旧版同时给「18% 橙底 + 3px 下划线」，
+   两层叠在一起像一个笨重的色块；下划线本身已经足够标识当前页，
+   文字提亮到主色就够。宽度改成贴合文字（min-width:0 + padding 0 4px），
+   否则 108px 的等宽胶囊会拖出一条比文字长很多的空线。 */
 html[data-tv-skin="on"] .app-primary-nav-link {
   font-size: 26px !important;
-  line-height: 52px !important;
-  height: 52px !important;
-  min-width: 108px !important;
-  padding: 0 20px !important;
-  margin-right: 10px !important;
+  line-height: 46px !important;
+  height: 46px !important;
+  min-width: 0 !important;
+  padding: 0 4px !important;
+  margin-right: 34px !important;
   text-align: center !important;
-  border-radius: 10px !important;
+  border-radius: 0 !important;
+  /* 站点给每个导航项留了 1px 四边框（选中项是 rgba(103,232,249,.38) 的青色）。
+     只留下划线之后，这圈 1px 青框反而成了「选中态」的杂音，压成透明。
+     保留 1px 宽度而不是 border:0，否则选中项比兄弟窄 2px，文字会左右抖一下。 */
+  border-color: transparent !important;
   color: #BCB9B3 !important;
 }
 html[data-tv-skin="on"] .app-primary-nav-link.is-active,
 html[data-tv-skin="on"] .app-primary-nav-link[aria-current="page"] {
   color: #F2F1ED !important;
-  background: rgba(255, 107, 66, 0.18) !important;
+  background: transparent !important;
   border-bottom: 3px solid #FF6B42 !important;
 }
 
@@ -213,17 +224,45 @@ html[data-tv-skin="on"] .movie-home-prompt-groups {
   display: none !important;
 }
 
-/* ── 6b. 首屏排序：把「本周追剧日历」挪到海报墙之后 ─────────────
-   目标：首屏能完整看到第一行 6 张海报。日历信息密度高（7 个日期 +
-   4 组剧集小卡），全放大后会把海报推到 y≈1100，等于首屏全是文字。
-   用 flex order 而不是 display:none —— 功能不丢，只是排到后面。
-   data-tv-late / data-tv-feed 由 tv-skin.js 打在 .movie-page-body > div
-   的直接子元素上，保证 order 在同一个 flex 容器里生效。 */
-html[data-tv-skin="on"] [data-tv-late] { order: 3 !important; }
-html[data-tv-skin="on"] [data-tv-resume] { order: 3 !important; }
-html[data-tv-skin="on"] [data-tv-feed] { order: 2 !important; }
+/* ── 6b. 首屏排序（阶段 7 重排） ─────────────────────────────────
+   站点原始顺序：今晚首选 → 继续观看 → 本周追剧 → 海报墙。
+   旧版把「继续观看 / 追剧日历」一起 order:3 甩到海报墙后面，首屏只剩
+   一张横幅 + 海报墙，而「我上次看到第 2:56」这类信息要滚 2000px 才看得到。
+   现在的顺序：今晚首选 0 → 继续观看 1 → 追剧日历 2 → 海报墙 3 → 加载更多 4。
+   为了把 6 张海报的第一行留在首屏，三块都要压瘦（见第 6/7/9 节）。
+   data-tv-* 由 tv-skin.js 打在 .movie-page-body > div 的直接子元素上，
+   保证 order 在同一个 flex 容器里比较。 */
+html[data-tv-skin="on"] [data-tv-tonight] { order: 0 !important; }
+html[data-tv-skin="on"] [data-tv-resume] { order: 1 !important; }
+html[data-tv-skin="on"] [data-tv-late] { order: 2 !important; }
+html[data-tv-skin="on"] [data-tv-feed] { order: 3 !important; }
 /* 「继续下滑，或点击加载更多」：保留（站点靠它触发无限滚动），但排到最后 */
 html[data-tv-skin="on"] [data-tv-tail] { order: 4 !important; }
+/* 今晚首选卡的宿主容器：站点给了 pt-4/md:pt-6（24px）和 gap-3（12px），
+   电视首屏每一像素都要省，且热词组已被隐藏，这两个间距纯属浪费。
+   min-height 是给「卡还没插进去」的那 1 秒预留位置：否则海报墙会先上去
+   再被顶下来 126px（正是用户说的「闪一版再刷新」）。 */
+html[data-tv-skin="on"] [data-tv-tonight-host] {
+  padding-top: 0 !important;
+  gap: 0 !important;
+  min-height: 126px !important;
+}
+
+/* 首屏占位（tv-skin.js 插入）：继续观看 / 本周追剧要 7.6 秒才挂载，
+   在它们到位之前先撑住高度，海报墙从第一帧起就待在最终位置。 */
+html[data-tv-skin="on"] .tv-ph {
+  border-radius: 12px !important;
+  background: rgba(255, 255, 255, 0.035) !important;
+  margin: 0 0 8px 0 !important;
+}
+html[data-tv-skin="on"] .tv-ph-resume {
+  order: 1 !important;
+  height: 184px !important;
+}
+html[data-tv-skin="on"] .tv-ph-late {
+  order: 2 !important;
+  height: 128px !important;
+}
 html[data-tv-skin="on"] .movie-page-body > div {
   display: flex !important;
   flex-direction: column !important;
@@ -233,29 +272,40 @@ html[data-tv-skin="on"] .movie-button-primary {
   font-size: 24px !important;
 }
 
-/* ── 6. 今晚首选横幅（tv-skin.js 生成） ──────────────────────────
-   数据取自首张 .home-feed-card，不额外请求网络。 */
+/* ── 6. 今晚首选主推条（阶段 7 重做） ────────────────────────────
+   实测问题：卡片 1200×148，封面原图 420×600，object-fit:cover 先把 420 宽
+   拉到 1200（2.86 倍），再按 148 高裁掉 82% 的画面 —— 这就是「一条糊横幅」。
+   现在 1200×116：背景用同一张图 blur(26px) 抹掉放大痕迹，前景放 64×96 的
+   竖版缩略图（与原始 2:3 一致，缩小后锐利）。首屏省 32px。 */
 html[data-tv-skin="on"] .tv-tonight-card {
   position: relative !important;
   display: block !important;
   width: 100% !important;
-  height: 148px !important;
-  margin: 6px 0 10px 0 !important;
+  height: 116px !important;
+  margin: 0 0 10px 0 !important;
   overflow: hidden !important;
   border: 1px solid rgba(255, 255, 255, 0.14) !important;
-  border-radius: 18px !important;
+  border-radius: 16px !important;
   background: #191A1D !important;
   text-decoration: none !important;
 }
-html[data-tv-skin="on"] .tv-tonight-card > img {
+html[data-tv-skin="on"] .tv-tonight-bg {
   position: absolute !important;
   top: 0 !important;
   left: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  overflow: hidden !important;
+}
+html[data-tv-skin="on"] .tv-tonight-bg-img {
   width: 100% !important;
   height: 100% !important;
   object-fit: cover !important;
-  object-position: center 38% !important;
-  opacity: 0.72 !important;
+  object-position: center 32% !important;
+  -webkit-filter: blur(26px) brightness(0.62) saturate(1.15) !important;
+  filter: blur(26px) brightness(0.62) saturate(1.15) !important;
+  -webkit-transform: scale(1.18) !important;
+  transform: scale(1.18) !important;
 }
 html[data-tv-skin="on"] .tv-tonight-shade {
   position: absolute !important;
@@ -263,31 +313,44 @@ html[data-tv-skin="on"] .tv-tonight-shade {
   left: 0 !important;
   right: 0 !important;
   bottom: 0 !important;
-  background: linear-gradient(90deg, rgba(14,14,16,0.96) 0%,
-              rgba(14,14,16,0.72) 46%, rgba(14,14,16,0.06) 100%) !important;
+  background: linear-gradient(90deg, rgba(14,14,16,0.94) 0%,
+              rgba(14,14,16,0.78) 38%, rgba(14,14,16,0.10) 100%) !important;
+}
+html[data-tv-skin="on"] .tv-tonight-thumb {
+  position: absolute !important;
+  top: 10px !important;
+  left: 22px !important;
+  width: 64px !important;
+  height: 96px !important;
+  object-fit: cover !important;
+  object-position: center top !important;
+  border-radius: 10px !important;
+  border: 1px solid rgba(255, 255, 255, 0.18) !important;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.55) !important;
 }
 html[data-tv-skin="on"] .tv-tonight-copy {
   position: absolute !important;
-  left: 28px !important;
+  left: 104px !important;
   right: 28px !important;
-  bottom: 18px !important;
+  top: 14px !important;
+  bottom: auto !important;
   color: #F2F1ED !important;
 }
 html[data-tv-skin="on"] .tv-tonight-label {
   display: inline-block !important;
-  font-size: 18px !important;
+  font-size: 16px !important;
   line-height: 1.2 !important;
-  padding: 4px 12px !important;
-  margin-bottom: 8px !important;
-  border-radius: 8px !important;
+  padding: 3px 9px !important;
+  margin: 0 0 6px 0 !important;
+  border-radius: 7px !important;
   background: #FF6B42 !important;
   color: #12100F !important;
   font-weight: 700 !important;
 }
 html[data-tv-skin="on"] .tv-tonight-title {
   display: block !important;
-  font-size: 36px !important;
-  line-height: 1.2 !important;
+  font-size: 30px !important;
+  line-height: 1.15 !important;
   font-weight: 800 !important;
   overflow: hidden !important;
   white-space: nowrap !important;
@@ -297,37 +360,128 @@ html[data-tv-skin="on"] .tv-tonight-title {
 html[data-tv-skin="on"] .tv-tonight-meta {
   display: block !important;
   font-size: 19px !important;
-  line-height: 1.4 !important;
+  line-height: 1.25 !important;
+  overflow: hidden !important;
+  white-space: nowrap !important;
+  text-overflow: ellipsis !important;
   color: #BCB9B3 !important;
 }
 
-/* ── 7. 本周追剧日历：去掉横滑，改成换行排布 ───────────────────
-   焦点引擎只改 scrollTop，横向滚动容器里的后续卡片遥控器够不到，
-   所以 TV 上所有横滑列表都必须改成网格 / wrap。 */
-html[data-tv-skin="on"] .home-watch-calendar-list {
-  display: flex !important;
-  flex-wrap: wrap !important;
+/* ── 7. 本周追剧日历：只留 7 天日期条（阶段 7 方案 B） ───────────
+   实测 .home-watch-calendar 高 528 = 头部 44 + 日期条 72 + groups 378
+   （4 组 × 4 部海报小卡）。首屏要留给 6 列海报墙，所以 16 张小组卡整块隐藏，
+   只留「本周追剧 + 7 天日期条 + 查看完整日历」。
+   功能没丢：点任意日期、点「查看完整日历」都还能进完整日历页。 */
+html[data-tv-skin="on"] .home-watch-calendar-groups {
+  display: none !important;
+}
+html[data-tv-skin="on"] .home-watch-calendar {
+  /* 站点给 section 写了 min-height:240px（为 4 组小组卡预留），
+     groups 藏掉后这 240 - 头顶 44 - 日期条 60 = 136px 全是空白，
+     实测把「大家都在看」推到了 y=702（屏幕高 720）。必须清掉。 */
+  min-height: 0 !important;
+  height: auto !important;
+  margin: 0 0 6px 0 !important;
+  padding: 0 !important;
+}
+html[data-tv-skin="on"] .home-watch-calendar-header {
+  height: 44px !important;
+  min-height: 44px !important;
+  margin: 0 0 4px 0 !important;
+  padding: 0 !important;
+  align-items: center !important;
+}
+html[data-tv-skin="on"] .movie-page-body .home-watch-calendar-heading {
+  font-size: 24px !important;
+  line-height: 1.2 !important;
+  margin: 0 !important;
+}
+html[data-tv-skin="on"] .home-watch-calendar-range {
+  font-size: 18px !important;
+  margin: 0 0 0 12px !important;
+}
+html[data-tv-skin="on"] .home-watch-calendar-more {
+  height: 40px !important;
+  min-height: 40px !important;
+  margin: 0 !important;
+  padding: 0 14px !important;
+  font-size: 19px !important;
+}
+html[data-tv-skin="on"] .home-watch-calendar-days {
+  height: 60px !important;
+  grid-gap: 8px !important;
+}
+html[data-tv-skin="on"] .home-watch-calendar-day {
+  height: 60px !important;
+  min-height: 60px !important;
+  padding: 0 8px !important;
+  border-radius: 10px !important;
+}
+html[data-tv-skin="on"] .home-watch-calendar-day * {
+  font-size: 18px !important;
+  line-height: 1.15 !important;
+  white-space: nowrap !important;
+}
+
+/* ── 7b. 继续观看（阶段 7：首屏第二块，压成一行） ────────────────
+   原来 240 高（头部 52 + 4 张 280×160 横滑卡），且被 order 甩到海报墙之后。
+   现在排在今晚首选下面，卡改 4 列网格 146 高 —— 横滑容器里的后几张卡
+   遥控器根本够不到（焦点引擎只做纵向滚动），网格顺带解决这个老问题。 */
+html[data-tv-skin="on"] .movie-resume-section {
+  margin: 0 0 8px 0 !important;
+  padding: 0 !important;
+}
+html[data-tv-skin="on"] .movie-resume-header {
+  height: 44px !important;
+  min-height: 44px !important;
+  margin: 0 0 4px 0 !important;
+  padding: 0 !important;
+  align-items: center !important;
+}
+html[data-tv-skin="on"] .movie-page-body .movie-resume-title {
+  font-size: 24px !important;
+  line-height: 1.2 !important;
+  margin: 0 !important;
+}
+html[data-tv-skin="on"] .movie-resume-more {
+  height: 40px !important;
+  min-height: 40px !important;
+  font-size: 19px !important;
+}
+html[data-tv-skin="on"] .movie-resume-rail {
+  height: auto !important;
+  overflow: visible !important;
+}
+html[data-tv-skin="on"] .movie-resume-list {
+  display: grid !important;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  grid-gap: 12px !important;
   width: 100% !important;
   max-width: none !important;
   height: auto !important;
   overflow: visible !important;
-  grid-template-columns: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
 }
-html[data-tv-skin="on"] .home-watch-calendar-item {
-  width: 190px !important;
-  min-width: 190px !important;
-  height: 76px !important;
-  margin: 0 10px 10px 0 !important;
+html[data-tv-skin="on"] .movie-resume-card,
+html[data-tv-skin="on"] .movie-resume-link {
+  width: 100% !important;
+  min-width: 0 !important;
+  height: 136px !important;
+  border-radius: 12px !important;
 }
-html[data-tv-skin="on"] .home-watch-calendar-poster,
-html[data-tv-skin="on"] .home-watch-calendar-poster-image {
-  height: 76px !important;
+html[data-tv-skin="on"] .movie-resume-media,
+html[data-tv-skin="on"] .movie-resume-image {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover !important;
 }
-html[data-tv-skin="on"] .home-watch-calendar-item-copy * {
-  font-size: 18px !important;
-  white-space: nowrap !important;
-  overflow: hidden !important;
-  text-overflow: ellipsis !important;
+html[data-tv-skin="on"] .movie-resume-copy * {
+  font-size: 17px !important;
+  line-height: 1.2 !important;
+}
+html[data-tv-skin="on"] .movie-resume-name {
+  font-size: 19px !important;
 }
 
 /* ── 8. 海报墙：6 列网格（阶段 3 的核心） ─────────────────────── */
@@ -336,17 +490,20 @@ html[data-tv-skin="on"] .movie-page-body section {
 }
 /* 每个 rail 前的「大家都在看 / 今晚打开就能接上的热播片单」标题区
    原本上下各留一大截，TV 首屏要留给第一行海报。 */
+html[data-tv-skin="on"] [data-tv-feed] {
+  margin-top: 10px !important;
+  padding-top: 0 !important;
+}
 html[data-tv-skin="on"] [data-tv-feed] h2 {
   font-size: 26px !important;
   line-height: 1.2 !important;
   margin: 0 0 2px 0 !important;
   padding: 0 !important;
 }
+/* 「今晚打开就能接上的热播片单」这句副标题在电视上纯占位置：
+   它既不是分类也不是信息，却把第一行海报又往下推了 40px。 */
 html[data-tv-skin="on"] [data-tv-feed] p {
-  font-size: 18px !important;
-  line-height: 1.2 !important;
-  margin: 0 0 8px 0 !important;
-  padding: 0 !important;
+  display: none !important;
 }
 html[data-tv-skin="on"] .home-feed-rail {
   margin-top: 6px !important;
@@ -428,26 +585,36 @@ html[data-tv-skin="on"] .home-feed-card-heat {
   padding: 2px 8px !important;
 }
 
-/* ── 9. 焦点手感：卡片放大 + 环留白 ─────────────────────────────
+/* ── 9. 焦点手感：整卡放大 + 环留在卡片外沿 ──────────────────────
    v0.4 修复「焦点移到海报上，海报消失」：旧版给 .home-feed-card-link
    强写了 position:relative，但它本来是 absolute + height:100%，
    父卡片靠 padding-bottom:150% 撑高、内容盒高度为 0。
    改成 relative 后 height:100% 解析成 0，里面的 <img> 也一起塌成 0，
-   实机表现就是「海报整块不见了」。这里绝不能碰 position。 */
-html[data-tv-skin="on"] .home-feed-card-link.tv-focused,
-html[data-tv-skin="on"] .home-watch-calendar-item-link.tv-focused,
-html[data-tv-skin="on"] .tv-tonight-card.tv-focused {
-  z-index: 5 !important;
-  -webkit-transform: scale(1.04) !important;
-  transform: scale(1.04) !important;
-  -webkit-transform-origin: center center !important;
-  transform-origin: center center !important;
-}
-/* 卡片 overflow:hidden 会把画在外沿的焦点环裁掉。获焦时由 focus.js 给
-   最外层卡片打 data-tv-focus-parent，临时放开裁剪。 */
+   实机表现就是「海报整块不见了」。这里绝不能碰 position。
+
+   阶段 7：放大对象从「内层链接」换成「外层卡片」。旧版 scale(1.04) 打在
+   .home-feed-card-link 上：188→196 只大 8px，外框卡片和圆角不动，海报从
+   边框里溢出 4px，用户反馈「几乎看不出被选中」。现在整卡 scale(1.10)
+   （190→209）+ 焦点环也画在卡片上（见 focus.js 的 cardOf()）。 */
 html[data-tv-skin="on"] [data-tv-focus-parent] {
   overflow: visible !important;
   z-index: 8 !important;
+  -webkit-transform: scale(1.10) !important;
+  transform: scale(1.10) !important;
+  -webkit-transform-origin: center center !important;
+  transform-origin: center center !important;
+  -webkit-transition: -webkit-transform 0.14s cubic-bezier(0.2, 0.8, 0.2, 1) !important;
+  transition: transform 0.14s cubic-bezier(0.2, 0.8, 0.2, 1) !important;
+}
+/* 「今晚首选」是 1200 宽整条，1.10 会左右各溢 60px 出屏，只给 1.012（±7px）。 */
+html[data-tv-skin="on"] .tv-tonight-card[data-tv-focus-parent] {
+  -webkit-transform: scale(1.012) !important;
+  transform: scale(1.012) !important;
+}
+/* 没有卡片父级的焦点元素（导航文字、按钮）保持原样，只靠焦点环。 */
+html[data-tv-skin="on"] .home-feed-card-link.tv-focused,
+html[data-tv-skin="on"] .home-watch-calendar-item-link.tv-focused {
+  z-index: 5 !important;
 }
 
 /* ── 10. 详情页 / 播放器的最小适配（阶段 5 再细化） ─────────────

@@ -1,12 +1,14 @@
-# 搜剧 AI 电视版 · 阶段 1~6 工程
+# 搜剧 AI 电视版 · 阶段 1~7 工程
 
-**当前状态**：`0.6.0` / build 6 —— WebView 壳 + 遥控器焦点引擎 + TV 版式皮肤 +
-手机扫码输入 + 原生播放器 + **选集面板 / 进度回写 / 登录入口 / 远程线路配置**，
+**当前状态**：`0.7.1` / build 8 —— WebView 壳 + 遥控器焦点引擎 + TV 版式皮肤 +
+手机扫码输入 + 原生播放器 + 选集面板 / 进度回写 / 登录入口 / 远程线路配置 +
+**首屏揭幕门 / 下划线导航 / 紧凑主推条 / 首屏排序 / 焦点放大 / 滚动补间**，
 已装进雷鸟鹤7 Pro 75R675C 实机验证。
 自签名证书 30 年有效，装一次永久可用，没有 iOS 版那套 7 天续签。
 
-首屏实机截图：`docs/tv-stage3-home.png`。完整方案与实测数据：
-`docs/tv-feasibility.md`、`docs/tv-webview-capabilities.json`。
+首屏实机截图：`docs/tv-stage7-home.png`（阶段 7 版式）、`docs/tv-stage7-focus.png`
+（海报获焦：放大 + 焦点环）；阶段 3 的旧图 `docs/tv-stage3-home.png` 保留做对比。
+完整方案与实测数据：`docs/tv-feasibility.md`、`docs/tv-webview-capabilities.json`。
 
 ## 目录
 
@@ -18,21 +20,23 @@ tv/
 ├── libs/zxing-core-3.5.3.jar            只用 QRCodeWriter 生成二维码（Maven Central）
 ├── assets/
 │   ├── bridge.js                        documentStart 注入：RPC 桥 + 环境标记 + polyfill（含 replaceChildren）
-│   ├── focus.js                         焦点引擎：候选集 / 轴向最近邻 / refind / 宽元素特例 / 浮层焦点域
+│   ├── focus.js                         焦点引擎：候选集 / 轴向最近邻 / 宽元素特例 / 卡片放大 / rAF 滚动补间 / 浮层焦点域
 │   ├── focus.css                        焦点环样式（Chrome 83 基线）
-│   ├── tv-skin.css                      TV 版式：1200px 全宽 / 6 列网格 / 深色令牌 / 今晚首选 / 搜索浮层
-│   ├── tv-skin.js                       data-* 标记 / 首屏排序 / 今晚首选卡 / 锚点自检
+│   ├── tv-skin.css                      TV 版式：1200px 全宽 / 6 列网格 / 深色令牌 / 今晚首选 / 下划线导航 / 等高占位
+│   ├── tv-skin.js                       data-* 标记 / 首屏排序 / 占位 / 今晚首选卡 / 就绪上报 / 锚点自检
 │   ├── tv-overlay.js                    顶部工具栏（搜索/选集/登录/扫码/原生播放）+ 搜索/选集/登录浮层 + 手机输入回传 + 媒体嗅探 + 进度回写
 │   ├── input-page.html                  手机扫码后的局域网输入页（由 LocalInputServer 提供）
 │   ├── error.html                       两条线路全挂时的错误页
 │   ├── probe.html                       阶段 0 能力探针（保留）
 │   └── security-probe.html              桥令牌隔离验证页
 ├── src/com/wuxiaogang/soujutv/
-│   ├── MainActivity.java                宿主、按键路由、全屏、failover 编排
+│   ├── MainActivity.java                宿主、按键路由、全屏、failover 编排、揭幕门门控
+│   ├── RevealGate.java                  揭幕门：setAlpha(0) 藏起未上皮肤的页面，JS 就绪后 160ms 渐入（8s 超时兜底）
+│   ├── LoadingSplash.java               揭幕期间的品牌加载页（搜剧TV + 正在加载… + 橙色进度条）
 │   ├── ShellConfig.java                 线路、可信 host、UA、常量
 │   ├── NativeBridge.java                RPC 路由 + 令牌校验 + 能力上报 + playNative/setOverlay
 │   ├── TvWebViewClient.java             导航边界、注入挂钩、失败上报
-│   ├── TvChromeClient.java              全屏回调、控制台、进度兜底
+│   ├── TvChromeClient.java              全屏回调、控制台（含 `SOUJUTV SKIN_READY` 零延迟捕获）、进度兜底
 │   ├── TvFocusEngine.java               注入器 + 按键映射 + 皮肤/浮层注入 + VERIFY 自检
 │   ├── QrGen.java                       ZXing 生成 WiFi 配网二维码 PNG（data URL）
 │   ├── LocalInputServer.java            8088 端口局域网 HTTP：配对码隔离 + /api/send 回传 + /api/config 线路下发
@@ -46,8 +50,8 @@ tv/
 正在运行的 WebView 并截图，**改 CSS 不用重装**；`tv-cdp.py` 是通用的实机 JS 执行 /
 几何量取工具（纯标准库 WebSocket 客户端，Chrome 83 只回整数 id，`--await` 可等 Promise）。
 
-**仍然不用 Gradle**：11 个 Java 类 + 一个 zxing jar，`aapt2 → javac → d8 → zipalign → apksigner`
-两秒出 352KB APK，改一行立刻装机实测。播放器实测系统 `MediaPlayer` 足够
+**仍然不用 Gradle**：13 个 Java 类 + 一个 zxing jar，`aapt2 → javac → d8 → zipalign → apksigner`
+两秒出 364KB APK，改一行立刻装机实测。播放器实测系统 `MediaPlayer` 足够
 （直链 mp4 / Range 拉流），ExoPlayer/media3 的收益只剩 DASH/DRM，不值得引入。
 
 ## 构建与安装
@@ -108,6 +112,9 @@ adb shell am start -n $PKG --es url "file:///android_asset/security-probe.html"
 adb shell am force-stop com.wuxiaogang.soujutv
 adb shell am start -n $PKG --es tvskin off
 
+# 关掉揭幕门（加载页 + 渐入）：直接看未上皮肤的原始首屏，用来对比「闪一版」
+adb shell am start -n $PKG --es gate off
+
 # 改 CSS 不重装：把本地 tv-skin.css/js 注入正在运行的 WebView，出截图 + 几何报告
 python3 tools/tv-skin-preview.py --out /tmp/tv-skin-preview.png
 python3 tools/tv-skin-preview.py --off          # 恢复原始版式（仅当前页面）
@@ -139,6 +146,8 @@ adb pull /storage/emulated/0/Android/data/com.wuxiaogang.soujutv/files/bridge.lo
 | `VERIFY` | 自检：CSS 注入、焦点环颜色、3 个 polyfill、`skinCss/skinMarker/skinState/gridColumns/overflowX` |
 | `HEALTH_OK` `HEALTH_MISSING` | 皮肤锚点自检结果；缺失时弹一次 Toast 告警（6 秒宽限 + 连续两次一致签名，避免启动期假警） |
 | `STATE` `DOM` | 焦点状态、DOM 摘要、`skinState`（含 `columns` / `missing` / `tonight` / 字号） |
+| `reveal` | 揭幕门：`HIDE seq=N`（藏起）→ `JS_READY` / `SHOW js_ready` / `SHOW timeout_8000ms` / `SHOW failed` |
+| `SKIN_PART` | 首屏各块挂载时间线（`SOUJUTV SKIN_PART feedTrack:true t=4083`），用于定位「闪一版」到底哪块晚了 |
 | `UP/DOWN/LEFT/RIGHT/OK` | 每次按键的 from→to 坐标、候选数、焦点环计算样式 |
 | `BACK` `SHOW_CUSTOM_VIEW` | 返回键与全屏回调 |
 
@@ -219,10 +228,15 @@ MutationObserver 触发成 220ms 死循环；1.2k 宽卡按中心点算侧向偏
 4. BACK 退出播放器后 WebView 焦点在 body，需按一次方向键重新聚焦（可用性小项）。
 5. Chrome 83 五个失效 CSS 特性（flex `gap` / `aspect-ratio` / `:has` / `:focus-visible` /
    `inset`）已全部避开，后续改皮肤要守住这条基线。
+6. 冷启动第一下 DOWN 落点是导航的「首页」（引擎从第一个候选起步，页面初始没有焦点），
+   第二下才到「今晚首选」。不影响使用，但第一下看起来「没动」。
+7. 站点首页数据本身要 7~10 秒才齐（今晚首选 9.7s、继续观看/日历 7.6s）。
+   占位只保证**位置**不跳，内容仍会陆续填进来 —— 想更快只能预取站点接口，属于改站点侧的事。
 
 ## 下一步
 
-阶段 0~6 全部收口：看片、搜索、输入、播放、换集、进度记忆、登录、远程换域名都已实机可用。
+阶段 0~7 全部收口：看片、搜索、输入、播放、换集、进度记忆、登录、远程换域名、
+首屏不闪版，都已实机可用。
 再往下是「锦上添花」：站内评论区/片单的电视版式、播放器画质与音轨切换、
 跨设备继续观看（同一账号多终端进度同步，站点已提供接口但电视端没接）。
 
@@ -307,3 +321,41 @@ JSON 格式（未识别的字段一律忽略，网络失败静默回落到内置
 ```
 
 版本号不高于本地时不覆盖，最多 8 条线路。日志看 `CONFIG_FETCH / CONFIG_APPLIED / CONFIG_STATE`。
+
+## 阶段 7：首屏体验六项
+
+用户实机提的六条观感问题，逐条落地（根因与数据见 `docs/tv-feasibility.md` §0.7）：
+
+| 问题 | 改法 |
+|---|---|
+| 打开时「初始首页布局一闪再刷新」 | **原生揭幕门**（`RevealGate` + `LoadingSplash`）：WebView 先 `alpha=0`，JS 上报 `SOUJUTV SKIN_READY` 后 160ms 渐入。就绪信号走 console 而不是 `evaluateJavascript` 轮询 —— 这台机器上回包延迟能到 1.6 秒 |
+| 菜单选中用色块，观感重 | 只留 3px 橙色下划线，`min-width:0` 让线贴住文字；站点的 1px 青色四边框也压成透明 |
+| 「今晚首选」占满一屏且糊 | 148→116px：背景换同图 `blur(26px)` 遮掉放大痕迹，前景改 64×96 竖版缩略图（原图 420×600 恰 2:3） |
+| 继续观看 / 本周追剧被挤到最底 | `order` 重排：今晚首选 0 / 继续观看 1 / 追剧日历 2 / 海报墙 3 / 加载更多 4；日历按方案 B 只留 7 天日期条 |
+| 获焦几乎看不出来 | 放大对象从内层链接换成**卡片外壳**（`cardOf()`），`scale(1.10)` → 190→209px，`.14s` 过渡，焦点环 + 外发光 + 投影一起写 |
+| 上下滚动是瞬间刷新 | rAF + easeOutCubic 补间 **150–330ms**（这台机器约 25–30fps，330ms≈9 帧才看得出滑）；新按键从当前 `scrollTop` 续接目标 |
+
+关键一条：**「闪一版」的成因是两次位移，不是两次渲染**。站点先画骨架，再陆续挂
+「继续观看（184px）」「追剧日历（118px）」「今晚首选（126px）」，每挂一块就把海报墙顶下去。
+所以除了揭幕门还做了等高占位（`.tv-ph` + `[data-tv-tonight-host] min-height`），
+真块到位后同位替换 —— 实测 5 秒与 13 秒的「继续观看」都在 y=208，全程零位移。
+
+**验收后又修的三处**（`0.7.1`）：横幅按 DOWN 会跳过整排继续观看（宽条改为纵向距离优先）、
+宿主标记晚了 8 秒导致揭幕后仍下移 102px（改为从热词组父节点提前标记）、
+「首页」上那圈查不到 CSS 来源的橙框（WebView 系统 default focus highlight 残留，
+`setDefaultFocusHighlightEnabled(false)`）。
+
+### 阶段 7 实机验证（2026-11-07 17:5x，鹤7 Pro 75R675C）
+
+| 项 | 结果 |
+|---|---|
+| 构建 / 安装 | `0.7.1` / build 8 / 364KB，v1+v2+v3 通过，`adb install -r` 579ms |
+| **揭幕** | `HIDE seq=1` → `JS_READY` → `SHOW js_ready`（冷启动 PAGE_START→揭幕 ≈ 4.0s，此前是等满 8s 超时） |
+| **零位移** | 5s：宿主 126px、继续观看占位 y=208；13s：真块 y=208、占位已撤、海报标题 y=553 |
+| **首屏预算** | 导航 66 / 主推条 116 / 继续观看 184 / 日历 118 / 海报第一行 y≈598 |
+| **焦点路径** | 导航 → 今晚首选 → 继续观看 → 日历 → 海报墙；海报墙内连按 DOWN 同列换行（x 恒 638），`ring=1 / parent=1` 无残留 |
+| **焦点放大** | 卡片 `matrix(1.10,…)`，190→209px；横幅 `matrix(1.012,…)`（1200 宽不能 1.10） |
+| **滚动补间** | `scroll` 事件 3 个采样点 `[60356,1201] [60451,1250] [60532,1253]`，有渐变非一步到位 |
+| **导航选中态** | 只有 3px 下划线，`border-top/left/right` 透明，`outline 0` |
+| 站内跳转 | 点片进 `/player/...` 不套揭幕门（日志无 HIDE/SHOW），返回首页正常 |
+

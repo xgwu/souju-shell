@@ -68,6 +68,13 @@ public class MainActivity extends Activity
     private FrameLayout content;
     private View customView;
     private WebChromeClient.CustomViewCallback customViewCallback;
+    /** 阶段 7：整文档加载的「揭幕门」，避免先闪一版站点原生首页。 */
+    private RevealGate revealGate;
+    /** 揭幕门开关：adb --es gate off 关掉做 A/B（对比「闪一版」到底长什么样）。 */
+    private boolean gateEnabled = true;
+    /** 冷启动（本进程第一次加载）是否已经用过揭幕门。 */
+    private boolean gateUsed = false;
+    private LoadingSplash splash;
 
     private final Runnable loadTimeout = new Runnable() {
         @Override public void run() {
@@ -95,8 +102,26 @@ public class MainActivity extends Activity
         setContentView(content);
 
         web = new WebView(this);
+        /* WebView 自身也要深色底：默认白底会在首帧（尤其在 alpha=0 揭幕门期间
+           动画合成层里）透出白色闪一下。 */
+        web.setBackgroundColor(0xFF0E0E10);
+        /* 关掉系统自绘的 default focus highlight（API 26+）：它是圆角方块、
+           不参与 CSS、也不跟随我们 injected 的焦点环。实测它会在焦点移走后
+           残留在原处 —— 截图里「首页」明明只该有下划线，却一直带一圈橙框，
+           就是这个东西（getComputedStyle 查 outline/box-shadow 全是 0，查不到）。 */
+        if (Build.VERSION.SDK_INT >= 26) {
+            web.setDefaultFocusHighlightEnabled(false);
+        }
         content.addView(web, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        splash = new LoadingSplash(this);
+        content.addView(splash.view(), new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+
+        revealGate = new RevealGate(web, handler);
+        revealGate.setOnReveal(new RevealGate.OnReveal() {
+            @Override public void onReveal(String why) { splash.hide(); }
+        });
 
         WebView.setWebContentsDebuggingEnabled(true);
         WebSettings s = web.getSettings();
@@ -183,6 +208,13 @@ public class MainActivity extends Activity
             if (n > 0) lines = Arrays.copyOf(normalized, n);
         }
         ShellConfig.addTrustedHosts(intent.getStringExtra("trusted"));
+
+        String gate = intent.getStringExtra("gate");
+        if (gate != null) {
+            String gv = gate.trim().toLowerCase();
+            gateEnabled = !("off".equals(gv) || "0".equals(gv) || "false".equals(gv));
+            BridgeLog.i("boot", "GATE_OVERRIDE " + gate + " → " + gateEnabled);
+        }
 
         /* 阶段 6：远程配置地址（一次下发后持久化，之后每次启动自动拉）。
            `--es config off` 清掉，方便换托管或收尾测试。 */
@@ -303,7 +335,44 @@ public class MainActivity extends Activity
             bridge.invalidateToken();
             BridgeLog.w("bridge", "UNTRUSTED 主文档，不下发桥令牌：" + url);
         }
+        /* 阶段 7 揭幕门：只有「会注入皮肤的可信 http(s) 页」才值得等。
+           非可信域 / error.html 不注入皮肤，等它就是干黑 6 秒，直接揭幕。 */
+        /* 只给「本进程第一次加载」和「回首页」套揭幕门。
+           实测站点连详情页都是整文档加载（PAGE_START 2.5s 才注入），
+           每次点片都盖一块加载页反而更慢；点片时让站点自己的骨架先画出来，
+           观感比「黑 2.7 秒再一次性出现」好。首页是闪版最明显的地方，
+           进进出出都留着门。 */
+        if (gateEnabled && skinEnabled && trusted && isWebUrl(url)
+                && (!gateUsed || isHomeUrl(url))) {
+            gateUsed = true;
+            splash.show();
+            revealGate.hide();
+        } else {
+            splash.hide();
+            revealGate.reveal("no-gate");
+        }
         TvFocusEngine.inject(web, this, bridge, url, "start", trusted, skinEnabled);
+    }
+
+    /** 站点首页（含根路径）。回首页时也套揭幕门，避免首页闪版。 */
+    private static boolean isHomeUrl(String url) {
+        if (url == null) { return false; }
+        try {
+            String path = android.net.Uri.parse(url).getPath();
+            return path == null || path.length() == 0 || "/".equals(path)
+                    || "/index.html".equals(path);
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    private static boolean isWebUrl(String url) {
+        return url != null && (url.startsWith("http://") || url.startsWith("https://"));
+    }
+
+    @Override
+    public void onSkinReady() {
+        if (revealGate != null) { revealGate.reveal("js_ready"); }
     }
 
     @Override
@@ -339,6 +408,8 @@ public class MainActivity extends Activity
         if (failureHandledForLoad) return;   // 新旧两个 onReceivedError 重载可能都触发
         failureHandledForLoad = true;
         handler.removeCallbacks(loadTimeout);
+        // 失败页不套揭幕门：错误信息必须立刻可见
+        if (revealGate != null) { revealGate.reveal("failed"); }
         BridgeLog.e("line", "FAILOVER_TRIGGER " + reason + " @ " + url);
         if (lineIndex + 1 < lines.length) {
             handler.postDelayed(new Runnable() {

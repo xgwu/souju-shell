@@ -12,6 +12,8 @@ public final class TvChromeClient extends WebChromeClient {
         void onHideCustomView();
         boolean isCustomViewShowing();
         void onInjectChance(String url, String phase);
+        /** JS 侧皮肤已成型（console 上报 SOUJUTV SKIN_READY），用于揭幕。 */
+        void onSkinReady();
     }
 
     private final Host host;
@@ -44,6 +46,12 @@ public final class TvChromeClient extends WebChromeClient {
     @Override
     public boolean onConsoleMessage(ConsoleMessage cm) {
         String msg = cm.message();
+        if (msg.indexOf("SOUJUTV SKIN_READY") >= 0) {
+            // 零延迟的就绪信号：evaluateJavascript 在本机上回包要 1.6 秒，轮询不可用
+            BridgeLog.i("reveal", "JS_READY");
+            host.onSkinReady();
+            return true;
+        }
         if (msg.startsWith("TVFOCUS") || msg.startsWith("SOUJUTV") ||
                 cm.messageLevel() == ConsoleMessage.MessageLevel.ERROR) {
             BridgeLog.i("console", cm.messageLevel() + " " + msg);
