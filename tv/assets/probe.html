@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SoujuTV WebView Probe</title>
+<style>
+  body { margin:0; padding:26px; background:#0E0E10; color:#F2F1ED;
+         font-family:monospace; font-size:18px; }
+  h1 { font-size:30px; color:#FF8A3D; margin:0 0 14px; }
+  pre { white-space:pre-wrap; word-break:break-all; line-height:1.45; font-size:15px; }
+</style>
+</head>
+<body>
+<h1>搜剧 TV · WebView 探针</h1>
+<pre id="out">running…</pre>
+<script>
+(function () {
+  function t(fn) { try { return !!fn(); } catch (e) { return false; } }
+  function css(prop, val) { return t(function () { return CSS.supports(prop, val); }); }
+  // 语法特性必须放进 new Function 里测：直接写在源码里，Chrome 83 会在解析阶段
+  // 整段脚本报错，探针页自己先白屏，反而测不到任何东西。
+  function syntax(body) { return t(function () { return !!new Function(body)(); }); }
+
+  // flex gap 用真实布局测，比 CSS.supports 可靠
+  var gapOffset = -1;
+  try {
+    var d = document.createElement('div');
+    d.style.cssText = 'display:flex;gap:10px;width:100px;position:absolute;left:-9999px';
+    d.innerHTML = '<div style="width:10px;height:10px"></div>'
+                + '<div style="width:10px;height:10px"></div>';
+    document.body.appendChild(d);
+    gapOffset = d.children[1].offsetLeft;
+    document.body.removeChild(d);
+  } catch (e) {}
+
+  var r = {
+    ua: navigator.userAgent,
+    chromeFromUA: (navigator.userAgent.match(/Chrome\/([0-9.]+)/) || [])[1] || null,
+    viewport: { w: innerWidth, h: innerHeight, dpr: devicePixelRatio },
+    screen: { w: screen.width, h: screen.height },
+    js: {
+      Array_at: t(function () { return typeof Array.prototype.at === 'function'; }),
+      Array_findLast: t(function () { return typeof Array.prototype.findLast === 'function'; }),
+      String_replaceAll: t(function () { return typeof String.prototype.replaceAll === 'function'; }),
+      Object_hasOwn: t(function () { return typeof Object.hasOwn === 'function'; }),
+      Promise_any: t(function () { return typeof Promise.any === 'function'; }),
+      structuredClone: t(function () { return typeof structuredClone === 'function'; }),
+      WeakRef: t(function () { return typeof WeakRef === 'function'; }),
+      FinalizationRegistry: t(function () { return typeof FinalizationRegistry === 'function'; }),
+      AggregateError: t(function () { return typeof AggregateError === 'function'; }),
+      crypto_randomUUID: t(function () { return typeof crypto.randomUUID === 'function'; }),
+      AbortSignal_timeout: t(function () { return typeof AbortSignal.timeout === 'function'; }),
+      Intl_Segmenter: t(function () { return typeof Intl.Segmenter === 'function'; }),
+      ResizeObserver: t(function () { return typeof ResizeObserver === 'function'; }),
+      IntersectionObserver: t(function () { return typeof IntersectionObserver === 'function'; }),
+      MediaSource: t(function () { return typeof MediaSource !== 'undefined'; })
+    },
+    css: {
+      flexGap: gapOffset === 20,
+      flexGapOffsetLeft: gapOffset,
+      aspectRatio: css('aspect-ratio', '1'),
+      has: t(function () { return CSS.supports('selector(:has(*))'); }),
+      focusVisible: t(function () { return CSS.supports('selector(:focus-visible)'); }),
+      inset: css('inset', '0'),
+      contentVisibility: css('content-visibility', 'auto'),
+      clamp: css('width', 'clamp(1px,2px,3px)'),
+      backdropFilter: css('backdrop-filter', 'blur(2px)')
+                   || css('-webkit-backdrop-filter', 'blur(2px)'),
+      gridGap: css('grid-gap', '2px'),
+      objectPosition: css('object-position', 'center'),
+      sticky: css('position', 'sticky')
+    },
+    video: (function () {
+      try {
+        var v = document.createElement('video');
+        return {
+          h264: v.canPlayType('video/mp4; codecs="avc1.42E01E"'),
+          hevc: v.canPlayType('video/mp4; codecs="hevc"'),
+          vp9: v.canPlayType('video/webm; codecs="vp9"'),
+          hls: v.canPlayType('application/vnd.apple.mpegurl')
+        };
+      } catch (e) { return { error: String(e) }; }
+    })()
+  };
+
+  // 真正的高版本语法单独测，避免影响本页解析
+  r.jsSyntax = {
+    optionalChaining: syntax('var a={}; return a?.b === undefined;'),
+    nullishCoalescing: syntax('return (null ?? 1) === 1;'),
+    logicalAssignment: syntax('var o={}; o.x ??= 1; return o.x === 1;'),
+    replaceAllMethod: syntax('return "a".replaceAll("a","b") === "b";')
+  };
+
+  document.getElementById('out').textContent = JSON.stringify(r, null, 2);
+  try { if (window.tvlog && tvlog.log) tvlog.log(JSON.stringify(r)); } catch (e) {}
+})();
+</script>
+</body>
+</html>

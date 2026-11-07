@@ -7,3 +7,6 @@ DerivedData/
 dist/
 *.ipa
 *.dSYM.zip
+__pycache__/
+*.pyc
+*.jks

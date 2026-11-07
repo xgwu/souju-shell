@@ -3,7 +3,7 @@
 > 调研日期：2026-11-07 · 目标设备：**雷鸟 鹤7 Pro 75R675C**（MT9653 / Android 11）
 > 固件：`V8-0012T11-LF1V706.003371` · **WebView：Chromium 83.0.4103.120（实测）**
 > 实测数据：`docs/tv-webview-capabilities.json` · 复测工具：`tools/tv-webview-probe.py`
-> 参考实现：同仓 iOS 版 `souju-shell`（6049 行 Swift）
+> 参考实现：同仓 iOS 版 `souju-shell`（6049 行 Swift） · 电视工程与命令：`tv/README.md`
 
 ---
 
@@ -29,7 +29,24 @@
 
 **值得记下来的一次判断失误**：我看到固件是 `V706`（2026-01-22 构建），推断系统 WebView「大概率 ≥90」。实测是 **83**——厂商把 WebView 锁在系统分区，固件再新也不更新它。以后判断内核版本，只认 `dumpsys webviewupdate`，不从固件版本外推。
 
-好消息是：站点 JS 产物里**没有任何解析级不兼容语法**（`??=` / `&&=` / `||=` 全为 0），缺的都是可补的运行时 API 和 CSS 特性。所以路线 A 依然成立，只是多一层约半天的兼容工作。
+好消息是：站点 JS 产物里**没有任何解析级不兼容语法**（`??=` / `&&=` / `||=` 全为 0），缺的都是可补的运行时 API 和 CSS 特性。所以路线 A 依然成立，兼容工作从「启动前置」降为「防御性补丁」（§5.5）。
+
+### 0.2 阶段 0 已验证通过（2026-11-07 11:10 实机）
+
+自签名 APK 已经装进电视并启动，路线 A 的前置条件全部拿到硬证据：
+
+| 验证项 | 结果 |
+|---|---|
+| `adb install -r` | ✅ `Success`，489ms；两个 verifier 开关为 `null` 也不拦截 |
+| 桌面可见 | ✅ 「我的应用」列表共 10 项，**搜剧TV 排第一位**，橙色图标正常 |
+| 第三方 App 的 WebView | ✅ `com.android.webview / 83.0.4103.120`，与系统浏览器一致 |
+| CSS 视口 | ✅ `1280×720 @ dpr 1.5`，UA 覆盖生效 |
+| **站点裸跑** | ✅ **React SPA 完整渲染：988 节点 / 1836 字符 / 37 张海报 / 61 链接，logcat 无一条 JS 错误** |
+| 遥控器按键 | ✅ DPAD 上/下/左/右、OK、BACK 六个键全部到达 `dispatchKeyEvent` |
+
+最意外的一条：**不加任何 polyfill，站点首页就跑起来了**。静态扫描里那 3 个「未保护运行时 API」不在首屏初始化路径上，`souju.ai → bpz2.com` 的线路自动跳转也正常走完。因此 §5.5 兼容层不再阻断启动，阶段 0.5 可以并入后续开发。
+
+截图同时确认了一件必须做的事：站点现在是**桌面窄版布局**（内容居中、两侧大片留白），字号对 2.5m 观看距离过小 —— §6 的 TV 版式不是锦上添花，是可用性前提。
 
 ---
 
@@ -227,7 +244,7 @@ JS 侧三个要点：
 
 扫码方案：TV 显示二维码 → 手机打开 `http://<电视IP>:8080` → 输入 → WebSocket 回传 → 注入到站点搜索框并触发搜索。延迟目标 < 200ms。
 
-### 5.3 实测结果：Chromium 83（风险从「待验证」变为「已确认」）
+### 5.3 实测结果：Chromium 83
 
 ```
 adb shell dumpsys webviewupdate
@@ -290,7 +307,12 @@ WebViewClient.shouldInterceptRequest
 
 补充一条实测证据：`MediaSource.isTypeSupported('video/mp4; codecs="hev1..."') = false`、`video.canPlayType('hevc') = ""`，而 `h264 = "probably"`。也就是说 **WebView 里根本播不了 HEVC**。如果站点后续上 HEVC 片源，H5 播放器会直接失效——这是 B 阶段除 HDR 之外的第二个硬理由。
 
-### 5.5 兼容层（路线 A 的必做项，约半天）
+### 5.5 兼容层（防御性补丁，约 0.25 天）
+
+**定位变化**：原先按静态扫描判断「首页可能因 `Array.at` 报错」，把它列为启动前置项。
+11:10 实机裸跑（§0.2）证明首页完整渲染、logcat 无 `TypeError`，所以它**不再是路线 A 的前置条件**。
+但懒加载分片里那 6 处 `.at(` 和 1 处 `.replaceAll(` 是真实调用，进入对应页面时仍可能抛错；
+TV 皮肤也必须避开 Chrome 83 不支持的 CSS。因此这层保留，只是并入阶段 3 一起做，不再单列一个里程碑。
 
 在 `documentStart` 注入，先于站点任何脚本执行。两件事：
 
@@ -332,7 +354,7 @@ if (window.crypto && !crypto.randomUUID) crypto.randomUUID = function () {
 
 站点自身 CSS 里那些失效的 `gap` / `aspect-ratio`，靠 TV 皮肤对关键容器（海报卡、卡片网格、首屏横幅）显式覆盖即可，不必逐条修补 492KB。
 
-### 5.6 是否升级系统 WebView（需要你拍板）
+### 5.6 系统 WebView：已拍板不升级
 
 上面这套兼容层能解决**当前**站点，但站点以后重新构建、把 target 提到 Chrome 87+，就可能出现 `??=` 这类解析级语法，polyfill 补不了（脚本根本加载不了）。
 
@@ -347,7 +369,9 @@ adb shell cmd webviewupdate set-webview-implementation com.google.android.webvie
 - 风险：**这是系统级改动**，会影响电视上所有用 WebView 的 App；需要找匹配 `armeabi-v7a` + API 30 的 APK 版本；失败可用 `set-webview-implementation com.android.webview` 回退
 - 代价：约半天验证，且要确认厂商是否放行用户安装的 provider
 
-我的建议是**先不做**：兼容层成本更低、不动系统、随时可迭代。等真正遇到站点改版再说。但这一步要不要走，由你决定。
+**决定（2026-11-07）：不动系统 WebView。** 走 §5.5 兼容层，不改电视系统、随时可迭代。
+上面这组命令只作为将来站点改版、真出现解析级语法时的应急手段留档，现在不执行。
+实机裸跑已证明当前站点在 83 上能完整渲染，这个「一劳永逸」的收益目前并不紧迫。
 
 ---
 
@@ -376,35 +400,55 @@ adb shell cmd webviewupdate set-webview-implementation com.google.android.webvie
 
 ## 7. 里程碑
 
-| 阶段 | 交付 | 估时 | 验收标准 |
+| 阶段 | 交付 | 估时 | 状态 / 验收标准 |
 |---|---|---|---|
-| 0 | JDK17 + cmdline-tools + platform-tools，空壳装进电视 | 0.5 天 | 桌面能看到图标并启动 |
-| **0.5** | **兼容层（polyfill + Chrome 83 CSS 基线）** | **0.5 天** | 站点首页完整渲染，无 `at is not a function` |
+| **0** | JDK17 + SDK + 32 位空壳 APK + 安装取证 | 0.5 天 | ✅ **已完成**，见 §0.2 六项实测 |
+| ~~0.5~~ | 兼容层（polyfill + Chrome 83 CSS 基线） | 0.25 天 | 已并入阶段 3；裸跑证明不阻断启动 |
 | 1 | WebView 壳 + 桥 + 线路 failover | 2 天 | 首页能显示，桥日志有 `bridge-ok` |
 | 2 | **遥控器焦点引擎** | 2–3 天 | 6 列海报可用方向键遍历，无斜跳、无抖动 |
-| 3 | TV 版式皮肤（1280×720 坐标系） | 2–3 天 | 无横向滚动条，字能看清 |
+| 3 | TV 版式皮肤（1280×720 坐标系）+ 兼容层 | 2–3 天 | 无横向滚动条，字能看清，避开 5 个失效 CSS 特性 |
 | 4 | 手机扫码输入 | 1 天 | 手机输入后 TV 200ms 内出结果 |
 | 5 | ExoPlayer 播放 | 2–3 天 | 1080p 硬解，遥控器可控播放条 |
 
-合计约 **9–13 个工作日**（比初版多半天的兼容层），业余节奏 2–3 周。
+阶段 0 已完成，**剩余约 8–12 个工作日**，业余节奏 2–3 周。
+工程骨架（`tv/`）、构建脚本、自签名证书都已落地，阶段 1 不用再从零搭环境。
 
 ---
 
-## 8. 环境已就绪，取证已完成
+## 8. 环境、工具链与安装链路（全部已验证）
 
 | 事项 | 状态 |
 |---|---|
 | 型号确认（鹤7 Pro 75R675C） | ✅ |
 | 电视 ADB 开关 + RSA 授权 | ✅ |
-| Mac 装 `android-platform-tools` | ✅ `adb 1.0.41 / 37.0.1`，符号链接在 `/usr/local/bin/adb` |
+| Mac `android-platform-tools` | ✅ `adb 1.0.41 / 37.0.1`，软链 `/usr/local/bin/adb` |
 | 电视 IP | ✅ `Android.local` → `192.168.0.4:5555`，mDNS 自动发现 |
 | 设备 / WebView / 视口取证 | ✅ `tools/probe-tv.sh` |
-| WebView 能力边界实测 | ✅ `tools/tv-webview-probe.py` → `docs/tv-webview-capabilities.json` |
+| WebView 能力边界 | ✅ `tools/tv-webview-probe.py` → `docs/tv-webview-capabilities.json` |
+| **JDK 17** | ✅ Temurin `17.0.21+9`，`~/Library/Android/jdk17/home`（清华 Adoptium 镜像） |
+| **Android SDK** | ✅ cmdline-tools 12.0 / platform-34 / build-tools 34.0.0（dl.google.com 直连） |
+| **构建脚本** | ✅ `tools/build-tv-apk.sh`：aapt2 → javac → d8 → zipalign → apksigner，产物 20KB |
+| **签名证书** | ✅ `~/.souju-tv/tv.jks`，30 年有效；v1/v2/v3 全通过，覆盖安装签名不变 |
+| **安装链路** | ✅ `adb install -r` → `Success`；两个 verifier 开关为 `null` 并未拦截 |
+| **桌面可见** | ✅ 「我的应用」列表共 10 项，搜剧TV 排第一位 |
 
-有用的两条命令留档：
+三条最常用的命令：
 
 ```bash
-# 无需手工查 IP：mDNS 发现
+# 一次构建 + 安装
+bash tools/build-tv-apk.sh && adb install -r tv/build/souju-tv-debug.apk
+
+# 取证：App 自己打的全部日志（BOOT / JS / DOM / KEY / CONSOLE）
+adb logcat -d -s SoujuTV
+
+# 换页不用重编译
+adb shell am force-stop com.wuxiaogang.soujutv
+adb shell am start -n com.wuxiaogang.soujutv/.MainActivity --es url "https://bpz2.com/"
+```
+
+mDNS 发现链路留档（换路由器、IP 变了时用）：
+
+```bash
 dns-sd -B _adb._tcp local.
 dns-sd -L <实例名> _adb._tcp local.        # → Android.local.:5555
 dscacheutil -q host -a name Android.local  # → 192.168.0.4
@@ -413,7 +457,8 @@ dscacheutil -q host -a name Android.local  # → 192.168.0.4
 python3 tools/tv-webview-probe.py --save /tmp/probe.json
 ```
 
-下一步只剩**搭工程**：装 JDK 17 + Android cmdline-tools，打出 32 位空壳 APK，走一次 `adb install -r -g` 验证安装链路（`settings get global verifier_verify_adb_installs` 当前为 `null`，装不装得进还没实测）。
+下一步是**阶段 1**：把空壳升级成正式 WebView 壳（域名白名单、桥、线路 failover）。
+`tv/` 里已有可直接运行的 manifest / MainActivity / 资源，不必再从零搭工程。
 
 ---
 
@@ -421,12 +466,12 @@ python3 tools/tv-webview-probe.py --save /tmp/probe.json
 
 | 风险 | 概率 | 影响 | 缓解 |
 |---|---|---|---|
-| **Chromium 83 缺运行时 API / CSS 特性** | **已确认发生** | 首页报错、版式塌陷 | §5.5 兼容层（约半天），已列出精确清单 |
+| **Chromium 83 缺运行时 API / CSS 特性** | **能力缺失已确认，首页未受影响** | 懒加载页可能报错、站点 CSS 版式塌陷 | §5.5 兼容层（0.25 天）+ TV 皮肤显式覆盖；裸跑首页已通过 |
 | **站点未来改版用上 Chrome 85+ 语法** | 中 | 解析级白屏，polyfill 补不了 | §5.6 升级系统 WebView；或保留远程注入 CSS/JS 通道做应急 |
 | 遥控器焦点手感差，做不出"顺" | 中高 | 可用性受损 | 焦点引擎是独立模块，可单独打磨与回归 |
 | 站点域名轮换导致线路失效 | 高（已知） | App 打不开 | 远程配置下发线路，不必重装 |
-| `adb install` 被安装校验拦截 | 未知（两个 verifier 开关均为 `null`） | 装不上 | 两条 `settings put global`；U 盘兜底 |
-| 32 位 ABI 导致某个依赖装不上 | 中 | 编译/运行时失败 | 只打 `armeabi-v7a`；核对所有 `.so` 架构 |
+| ~~`adb install` 被安装校验拦截~~ | **已排除**（实测 `Success`） | — | 两条 `settings put global` 与 U 盘兜底留作备用 |
+| 32 位 ABI 导致某个依赖装不上 | 中（空壳已验证通过） | 编译/运行时失败 | 空壳不含 `.so`，天然兼容；将来引入 ExoPlayer 时核对 `.so` 架构 |
 | 杜比视界未必对三方 App 开放 | 中 | B 阶段只能拿到 HDR10/HLG | 实测；不承诺 DV，UI 上不标 DV 角标 |
 | WebView 内 HEVC 不支持 | 已确认 | HEVC 片源播不了 | B 阶段 ExoPlayer 走 MediaCodec |
 | 4GB 内存跑 SPA + hls.js 吃紧 | 低–中 | 卡顿/被系统杀 | 限制海报预载数；B 阶段把播放挪出 WebView |
@@ -436,6 +481,9 @@ python3 tools/tv-webview-probe.py --save /tmp/probe.json
 
 ## 10. 一句话建议
 
-先做 **0 + 0.5 + 1 + 2**（约 5.5 天）：把「能装、能看（含兼容层）、遥控器能走」验证掉。这三件事过了，剩下都是体力活；过不了，越早发现越省事。
+阶段 0 已完成，接下来先做 **1 + 2**（约 5 天）：正式 WebView 壳（桥、域名白名单、线路 failover）+ 遥控器焦点引擎。
 
-开工前唯一需要你拍板的是 **§5.6：要不要动系统 WebView**。不动的话，我按兼容层方案直接开始搭工程。
+「能装、能显示」已经用实机证明，不必再验证；剩下的最大不确定性只在焦点手感上。
+兼容层和 TV 皮肤并入阶段 3 一起做，是因为实测证明它们不阻断启动，可以边写边看效果。
+
+系统 WebView 已决定不动（§5.6），没有待拍板事项。
