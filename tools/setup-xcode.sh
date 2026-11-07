@@ -3,7 +3,7 @@
 # 用法：在「终端」里执行  bash ~/WorkBuddy/2026-11-06-11-31-15/souju-shell/tools/setup-xcode.sh
 #
 # 过程中只需要：
-#   1) 输入 Apple ID（可先按回车用默认值）
+#   1) 输入 Apple ID（若已 export SOUJU_APPLE_ID 可直接回车）
 #   2) 输入 Apple ID 密码（不回显，正常现象）
 #   3) 输入 6 位双重认证验证码
 #   4) 输一次 Mac 登录密码（sudo，用于选中 Xcode / 接受协议）
@@ -11,7 +11,8 @@
 set -u
 
 TARGET_VERSION="14.2"
-APPLE_ID_DEFAULT="you@example.com"
+# Apple ID 不再写死在脚本里（仓库已公开）。需要免输时先 export SOUJU_APPLE_ID=...
+APPLE_ID_DEFAULT="${SOUJU_APPLE_ID:-}"
 TOTAL_STEPS=6
 
 step() { printf "\n\033[1;36m[%d/%d]\033[0m %s\n" "$1" "$TOTAL_STEPS" "$2"; }
@@ -44,7 +45,11 @@ if [ -n "$EXISTING" ]; then
 else
   # ------------------------------------------------------ 2. 下载 + 解压
   step 3 "下载并安装 Xcode ${TARGET_VERSION}（约 7.8GB，取决于网速，请耐心等待）"
-  printf "      Apple ID 直接回车即用默认值：%s\n" "$APPLE_ID_DEFAULT"
+  if [ -n "$APPLE_ID_DEFAULT" ]; then
+    printf "      Apple ID 直接回车即用默认值：%s\n" "$APPLE_ID_DEFAULT"
+  else
+    printf "      请输入 Apple ID（想免输可先 export SOUJU_APPLE_ID=你的账号）\n"
+  fi
   # --experimental-unxip: 解压提速 2~3 倍；--empty-trash: 装完删除 7.8GB 的 xip
   if ! xcodes install "$TARGET_VERSION" --select --experimental-unxip --empty-trash; then
     die "xcodes install 失败。若提示认证错误，请把终端里的报错发我，我换备用方案。"
