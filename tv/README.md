@@ -1,9 +1,10 @@
-# 搜剧 AI 电视版 · 阶段 1~8 工程
+# 搜剧 AI 电视版 · 阶段 1~9 工程
 
-**当前状态**：`0.8.1` / build 10 —— WebView 壳 + 遥控器焦点引擎 + TV 版式皮肤 +
+**当前状态**：`0.9.1` / build 12 / 377KB —— WebView 壳 + 遥控器焦点引擎 + TV 版式皮肤 +
 手机扫码输入 + 原生播放器 + 选集面板 / 进度回写 / 登录入口 / 远程线路配置 +
 首屏揭幕门 / 下划线导航 / 紧凑主推条 / 首屏排序 / 焦点放大 / 滚动补间 +
-**首屏取舍（只留继续观看 + 海报墙）/「追剧」菜单 / 点海报直进全屏播放器**，
+首屏取舍（只留继续观看 + 海报墙）/「追剧」菜单 / 点海报直进全屏播放器 +
+**自建签名通道（点海报 1.5 秒起播）**，
 已装进雷鸟鹤7 Pro 75R675C 实机验证。
 自签名证书 30 年有效，装一次永久可用，没有 iOS 版那套 7 天续签。
 
@@ -234,16 +235,27 @@ MutationObserver 触发成 220ms 死循环；1.2k 宽卡按中心点算侧向偏
    第二下才到「今晚首选」。不影响使用，但第一下看起来「没动」。
 7. 站点首页数据本身要 7~10 秒才齐（继续观看 7.6s、海报真卡 7~10s）。
    占位只保证**位置**不跳，内容仍会陆续填进来 —— 想更快只能预取站点接口，属于改站点侧的事。
-8. 点海报到起播仍要 10~28 秒（站点详情页解析线路的固有耗时，关掉皮肤也一样，实测 14/27 秒）。
-   直通播放能保证的是「这段时间你一直停在海报遮罩上，不会跳详情页，也不会换集后跳回详情页」；
-   超过 1 分钟只会换提示（按返回可退出），3 分钟仍无地址才退回详情页。
+8. 点海报到起播：`0.9.1` 起 **1.16~2.60 秒**（自建签名通道，不再等站点播放器 UI）。
+   兜底路径仍是 12~14 秒（站点详情页解析线路的固有耗时）；两条都失败才走原来的
+   10~28 秒。超过 1 分钟只会换提示（按返回可退出），3 分钟仍无地址才退回详情页。
+9. **签名密钥是从站点前端 chunk 逆向来的**（`f39d73aa…e79d`），不是公开 API。
+   站点发版换密钥或改 `x-ai-movie-build-version` 时自建通道会 401，
+   表现是自动降级到兜底路径（变慢，不会白屏），此时需要重新核对 chunk 更新密钥。
+10. 自建通道会让**每个片子的 `/v1/*` 请求量翻倍**（站点自己的请求照发，我们并行再取一份），
+    换集时也如此；目前站点无限流迹象，但属于「借来的通道」，不保证长期可用。
+11. 换集 5.1 秒里 **2.4 秒是故意等的**：要让 H5 播放器先把进度回写（`TVPROGRESS`），
+    否则新集从 0 开始、旧集进度丢失。纯解析只占 2.5 秒，想更快得改进度回写策略。
+12. 冷缓存下 chunk 预热（`<link rel=prefetch>`，首页 5 秒后最多 40 条）只省 0.39 秒
+    （14.49s vs 14.10s）—— 瓶颈从来不在 chunk，而在等站点发 `resolve`。
+    这段代码保留是为了暖二跳，不作为主要收益。
 
 ## 下一步
 
-阶段 0~8 全部收口：看片、搜索、输入、播放、换集、进度记忆、登录、远程换域名、
-首屏不闪版、点海报一步进播放器，都已实机可用。
+阶段 0~9 全部收口：看片、搜索、输入、播放、换集、进度记忆、登录、远程换域名、
+首屏不闪版、点海报一步进播放器、点海报 1.5 秒起播，都已实机可用。
 再往下是「锦上添花」：站内评论区/片单的电视版式、播放器画质与音轨切换、
-跨设备继续观看（同一账号多终端进度同步，站点已提供接口但电视端没接）。
+换集再压 2 秒（把进度回写改成异步上报）、跨设备继续观看（同一账号多终端进度同步，
+站点已提供接口但电视端没接）。
 
 ## 手机扫码输入（阶段 4）
 
@@ -417,3 +429,90 @@ JSON 格式（未识别的字段一律忽略，网络失败静默回落到内置
 | **退出** | `TVDP_EXIT` → 2.6 秒 → `TVDP_CANCEL note=popstate phase=exit` → `location.pathname="/"`，`mask:false / active:false` |
 | **中途返回** | `BACK → goBack(-1)` → `TVDP_CANCEL waitedMs=2512`；之后 30 秒无幽灵起播 |
 | **二次点击** | 同会话内连点两张海报都能触发（修掉 `dpStarted` 残留后） |
+
+## 阶段 9：起播提速 —— 14 秒 → 1.5 秒（自建签名通道）
+
+问题：电视上点海报要 20 秒左右才出画面，iOS 版几秒就播。逐段拆日志后定位到三条根因
+（完整数据见 `docs/tv-feasibility.md` §0.9）：
+
+| 根因 | 证据 |
+|---|---|
+| 访客态下站点死磕官方线路 | `resolve-line` 连打 9~12 次全 401，白等 **8.35s**；而第一次 `resolve` 响应里已经有 22 条可直接播的第三方 m3u8 |
+| 站点「先搭播放器 UI 再解析地址」 | `resolve` 请求在点海报后 **12.4s** 才发出（detail 2.6s 就完成了） |
+| WebView 无原生 HLS | `MediaSource.isTypeSupported('application/vnd.apple.mpegurl')` = false，必须走 hls.js + MSE + 60+ 个 vite chunk |
+
+结论：既然站点后端签名可复现，就**别等站点**。改成自建通道直接取第三方线路，交给原生
+`MediaPlayer`（系统播放器本身能播 HLS，不需要 ExoPlayer）。
+
+**签名算法**（硬编码在站点前端 chunk `movie-card-runtime-*.js` 里）：
+
+```js
+const KEY = "f39d73aa7a6426203cdee1ef17b31d3b7ea8c23f4c59c62a3a8aa0f39ee5e79d";
+// signature = HMAC-SHA256(KEY, `${METHOD}\n${pathname}${search}\n${timestamp}\n${nonce}`)
+// 只作用于同源 /v1/*；nonce = 16 字节随机数 hex；timestamp = Date.now()
+```
+
+请求头：`x-ai-movie-timestamp` / `x-ai-movie-nonce` / `x-ai-movie-signature` /
+`x-ai-movie-client-name: movie-search-frontend` / `x-ai-movie-client-version: 1.0.0` /
+`x-ai-movie-protocol-version: 2026-07-05.library-v2.playback-v1` /
+`x-ai-movie-build-version`（随站点发版变，**运行时从站点请求头里学**，不写死）。
+
+**四步链路**（`dpOwnChannel`）：
+
+1. `/v1/catalog/{id}/episodes?limit=48&offset=0` —— 41ms 拿到 15 集，每集带 `token`
+2. `/v1/catalog/{id}/detail` —— 拿标题与 `available_episode_count`
+3. `/v1/playback/resolve/{epToken}?view=compact` → `line_options`
+4. 过滤 `http` + `m3u8` + `resolved !== false` + `minimum_user_level <= 0`，
+   **前 3 条并行预检**（各 1600ms 超时，拉文本看 `#EXTM3U`），先可用者胜
+   → `startNativePlay(url, 'own')`
+
+**五个实现细节**：
+
+1. `dpChanBusy` 互斥：自建通道和方案 A（`dpOnResolve` 钩子）只能活一条，
+   否则两边同时起播会抢播放器。
+2. 自建通道任何一步失败（签名失效 / 401 / 超时）都 `dpChanBusy=false` 并打
+   `TVDP_CHANNEL_FAIL`，`dpOnResolve` 立刻接管 —— **最坏退回 12~14 秒，不比优化前差**。
+3. 预检中的 URL 登记进 `dpProbeSet`，`fetch` / `XHR` 钩子见到就**不记 `mediaSeq`**，
+   否则自己的预检会被当成「站点开始播」而抢先拿坏线路起播。
+4. 剧集列表优先从接口取（`token` 直连换集，`TVDP_OWN_EP` 2.5s），接口失败才退回 DOM 点选；
+   起播太快时站点详情页还没渲染出按钮，用 detail 的集数伪造「第N集」占位。
+5. `playing` 阶段在 `tick()` 里把站点那个 `<video>` `pause()` 掉，避免它偷偷续流量/抢音频焦点。
+
+### 日志（阶段 9）
+
+| 日志 | 含义 |
+|---|---|
+| `TVDP_CHANNEL {"ms","eps","ep","lines"}` | 自建通道拿到线路（`ms` 应 < 2000） |
+| `TVDP_CHANNEL_FAIL {"note","ms"}` | 自建通道失败，已降级到兜底路径 |
+| `TVDP_LINES {"n","total","ep"}` | 线路过滤结果（n 条可用 / total 条原始） |
+| `TVDP_LINE_OK {"idx","ms","src"}` | 某条线路预检通过 |
+| `TVDP_LINE_BAD` / `TVDP_LINE_ERR` | 预检不通 / 请求异常 |
+| `TVDP_OWN_EP {"ms","idx","label"}` | 用 token 直接换集成功 |
+| `TVDP_START {"note":"own"}` | 起播来源 = 自建通道（`own-pick` = 换集） |
+| `TVWARM_COLLECT {"n"}` | 播放页停留 6s 后收集 chunk 列表并存 localStorage |
+| `TVWARM_PREFETCH {"n"}` | 首页停留 5s 后建 prefetch 链接（去重后） |
+| `TVPICK {"sec","idx","eps","tok"}` | 选集面板触发换集（`tok` = 该集 token 是否就绪） |
+
+### 画面取证
+
+Amlogic 硬件视频层**不参与屏幕合成**：`screencap` 与 `screenrecord` 录出来纯黑，
+只剩 UI 层文字。所以「有没有出图」只能看日志：
+
+```
+I/player: PLAYING duration=1982493 video=1920x1080
+```
+
+`getVideoWidth()/getVideoHeight()` ≠ 0 才证明视频轨真的解出来了（`PlayerActivity.onPrepared`
+里上报）。这也是唯一可靠的证据。
+
+### 阶段 9 实机验证（2026-11-08 07:56，鹤7 Pro 75R675C）
+
+| 项 | 结果 |
+|---|---|
+| 构建 / 安装 | `0.9.1` / build 12 / 377KB，v1+v2+v3 通过 |
+| **首次点海报** | `TVDP_CHANNEL {"ms":1617,"eps":15,"ep":1,"lines":6}` → `TVDP_START note=own waitedMs=2602` → `PLAYING video=1920x1080` |
+| **同会话第二次** | `waitedMs=1164` / `1616`（热路径） |
+| **换集** | `TVPICK {"sec":9,"idx":1,"eps":15,"tok":15}` → `TVDP_OWN_EP {"ms":2528}` → `TVDP_START note=own-pick waitedMs=2537` → `PLAYER_OPEN ep=1/15`（面板等 2.4s 收进度回写，合计 5.1s） |
+| **续播** | 「继续观看」卡片「上次看到 3:33」→ `pos=213000` 起播，集数取 `current_episode.sequence_index`（不再显示成第 1 集） |
+| **退出回写** | `ACTIVITY_RESULT reason=back pos=15200` → `TVDP_EXIT` → `TVPROGRESS {"synced":13,"from":0}` → `pathname="/"` |
+| **画面** | `PLAYING duration=1982493 video=1920x1080`（截图取不到，见上） |

@@ -151,6 +151,11 @@
      只看 duration 会把上一部片当成这一部直接起播（实测踩过）。 */
   var mediaSeq = 0;
 
+  /* 阶段 9：正在做线路预检（见 dpProbeLines）。预检的 m3u8 请求不能算成
+     「站点开始播」，否则 mediaSeq 被推高，直通播放会抢在预检确认前起播。
+     按 URL 精确登记，比计数安全 —— 超时/重试不会把计数漏成永久非零。 */
+  var dpProbeSet = {};
+
   function recordMedia(u) {
     if (typeof u !== 'string' || u.indexOf('http') !== 0) { return; }
     mediaSeq++;
@@ -167,14 +172,30 @@
   if (window.fetch) {
     var origFetch = window.fetch;
     window.fetch = function (a, b) {
-      try { recordMedia(typeof a === 'string' ? a : (a && a.url)); } catch (e) {}
-      return origFetch.apply(this, arguments);
+      var u = (typeof a === 'string') ? a : (a && a.url);
+      /* 自己的预检请求不算「站点开始播」—— 否则 mediaSeq 被推高，
+         dpTick 会抢在预检确认之前拿 mediaUrls[0] 起播（可能是条坏线路）。 */
+      if (u && !dpProbeSet[u]) { try { recordMedia(u); } catch (e) {} }
+      /* 顺手把站点用的 x-ai-movie-* 固定头学下来（build-version 跟着站点发版变，
+         写死会在下次发版后导致 401）。 */
+      try {
+        if (u && u.indexOf('/v1/') >= 0) {
+          learnSigHeaders((b && b.headers) || (a && a.headers) || null);
+        }
+      } catch (e) {}
+      var p = origFetch.apply(this, arguments);
+      /* 阶段 9：resolve 的响应体里本来就有可直接播的第三方 m3u8，
+         不用等站点那套「官方线路 401 重试 → 降级」流程。 */
+      try {
+        if (u && u.indexOf('/v1/playback/resolve/') >= 0) { dpOnResolve(p); }
+      } catch (e) {}
+      return p;
     };
   }
   if (window.XMLHttpRequest && XMLHttpRequest.prototype.open) {
     var origOpen = XMLHttpRequest.prototype.open;
     XMLHttpRequest.prototype.open = function (m, u) {
-      try { recordMedia(u); } catch (e) {}
+      if (u && !dpProbeSet[u]) { try { recordMedia(u); } catch (e) {} }
       return origOpen.apply(this, arguments);
     };
   }
@@ -585,10 +606,14 @@
 
   function openEpisodes(btn) {
     if (!build()) { return false; }
-    epList = collectEpisodes();
+    /* 只在站点真的渲染出剧集时才覆盖 —— 直通播放起播太快时详情页可能还没
+       渲染完，这时 epList 里放的是 detail 补的「第N集」占位（el 为 null），
+       不能因为 DOM 还空就把它清掉，否则面板会变成「没有可切换的剧集」。 */
+    var fresh = collectEpisodes();
+    if (fresh.length) { epList = fresh; }
     /* 站点默认只挂 15 个「快速集」；完整目录要展开一次才进 DOM。
        展开按钮本身在电视上被我们的皮肤压到屏幕外，用户看不到闪烁。 */
-    if (!epList.length && !epExpandedTried) {
+    if (!fresh.length && !epExpandedTried) {
       var exp = q('.movie-episode-expand-button');
       if (exp) {
         epExpandedTried = true;
@@ -605,9 +630,88 @@
   }
 
   /** 在站点里点某一集。autoPlay=true 时切完后重新拉起原生播放器（原生选集面板回调用）。 */
+  /** 起播太快时 epList 是从 detail 补的「第N集」占位（el 为 null），
+      真正要点的按钮还得等详情页把剧集列表渲染出来 —— 按序号去 DOM 里找，
+      找不到就等（站点渲染慢时最多等 8 秒）。 */
+  function findEpEl(label, tries, cb) {
+    var want = epOrder(label);
+    var t = 0;
+    (function step() {
+      var now = collectEpisodes();
+      for (var k = 0; k < now.length; k++) {
+        if (epOrder(now[k].label) === want) { cb(now[k].el); return; }
+      }
+      if (t++ >= tries) { cb(null); return; }
+      setTimeout(step, 400);
+    })();
+  }
+
   function pickEpisode(i, autoPlay) {
     var e = epList[i];
-    if (!e || !e.el) { toast('剧集已失效，请重新打开选集'); return; }
+    if (!e) { toast('剧集已失效，请重新打开选集'); return; }
+    /* 有 token 就不必等站点把剧集按钮渲染出来（自建通道自己能解析）。 */
+    if (!e.el && !e.token) {
+      toast('正在准备 ' + e.label + '…');
+      findEpEl(e.label, 20, function (el) {
+        if (!el) { toast('剧集列表还没加载出来，请稍后再试'); return; }
+        e.el = el;
+        doPick(i, autoPlay);
+      });
+      return;
+    }
+    doPick(i, autoPlay);
+  }
+
+  /** 换集走自建通道：episodes 接口里每集都有 token，直接 resolve 就能拿到
+      播放地址，不用等站点详情页把剧集按钮渲染出来、也不用等它自己那 10 秒。
+      同时顺手把站点里对应那一集点一下（fire-and-forget），让站点的
+      「当前集」和进度记录跟上 —— 进度回写仍然靠站点。 */
+  function dpOwnEpisode(idx) {
+    var e = epList[idx];
+    if (!e || !e.token) { return false; }
+    dpWait('switch');
+    dpChanBusy = true;
+    var gen = dpLineGen;
+    var t0 = Date.now();
+    apiGet('/v1/playback/resolve/' + e.token + '?view=compact').then(function (j) {
+      if (!dpActive || gen !== dpLineGen || dpPhase !== 'switch') { return; }
+      var lines = dpPickLines(j);
+      if (!lines.length) { throw new Error('no-line'); }
+      return dpBestLine(lines).then(function (ok) {
+        if (!dpActive || gen !== dpLineGen || dpPhase !== 'switch') { return; }
+        dpChanBusy = false;
+        log('TVDP_OWN_EP', { ms: Date.now() - t0, idx: idx, label: e.label });
+        dpStart(ok || lines[0], 'own-pick', 0, idx);
+      });
+    })['catch'](function (err) {
+      dpChanBusy = false;
+      log('TVDP_OWN_EP_FAIL', { note: String((err && err.message) || err).slice(0, 40) });
+      doPickDom(idx, true);   // 自建通道不通就退回点站点 DOM 的老办法
+    });
+    return true;
+  }
+
+  function doPick(i, autoPlay) {
+    var e = epList[i];
+    if (!e) { return; }
+    if (e.token) {
+      /* 站点状态要跟上（进度回写靠它记录「哪一集看到哪」）。详情页可能要
+         十几秒才渲染出剧集按钮，所以这里放宽到 10 秒，纯 fire-and-forget，
+         不阻塞起播。 */
+      if (e.el) { try { e.el.click(); } catch (err) {} }
+      else { findEpEl(e.label, 25, function (el) { if (el) { try { el.click(); } catch (x) {} } }); }
+      log('TVEPISODE', { pick: i, label: e.label, via: 'own', autoPlay: !!autoPlay });
+      if (mode === 'episodes') { close(); }
+      toast('正在切换到 ' + e.label);
+      dpOwnEpisode(i);
+      return;
+    }
+    doPickDom(i, autoPlay);
+  }
+
+  function doPickDom(i, autoPlay) {
+    var e = epList[i];
+    if (!e || !e.el) { return; }
     var prev = playUrl || currentMedia();
     var before = mediaUrls.slice(0, 8);
     try { e.el.click(); } catch (err) {}
@@ -676,12 +780,17 @@
       2.4 秒后再切，避免两个动作抢同一个 <video>。 */
   window.__tvSyncThenPick = function (sec, idx) {
     var s = Number(sec || 0);
+    log('TVPICK', { sec: Math.round(s), idx: idx, eps: epList.length,
+      tok: epList.filter(function (x) { return !!x.token; }).length });
     /* 直通会话里换集：先把遮罩切回「正在切换剧集」，用户在播放器里选完集
        到新集起播这段时间，看到的是遮罩而不是详情页。 */
     if (window.__tvDpSwitch) { window.__tvDpSwitch(); }
     if (s > 2) {
       syncProgress(s);
-      setTimeout(function () { pickEpisode(idx, true); }, 2400);
+      setTimeout(function () {
+        try { pickEpisode(idx, true); }
+        catch (e) { log('TVPICK_ERR', { note: String(e && e.message || e).slice(0, 60) }); }
+      }, 2400);
     } else {
       pickEpisode(idx, true);
     }
@@ -1002,7 +1111,7 @@
   var lastNativeUrl = '';
   var lastNativeAt = 0;
 
-  function startNativePlay(overrideUrl, epIndex, note) {
+  function startNativePlay(overrideUrl, epIndex, note, startPos, titleOverride) {
     var url = overrideUrl || playUrl || currentMedia();
     if (!url) { toast('当前页没有可直接播放的地址'); return; }
     /* 直通播放时 dpTick 与 pickEpisode 自己的轮询会同时发现同一个地址，
@@ -1013,8 +1122,11 @@
     var v = q('video');
     var pos = v && typeof v.currentTime === 'number' ? Math.round(v.currentTime * 1000) : 0;
     if (overrideUrl) { pos = 0; }
+    /* 直连 resolve 线路时站点还没 seek 过，必须把「继续观看」的位置显式传进去，
+       否则从「上次看到 30:53」点进去会从头播。 */
+    if (typeof startPos === 'number' && startPos > 0) { pos = startPos; }
     var h1 = q('h1');
-    var title = text(h1) || document.title || '搜剧TV';
+    var title = titleOverride || text(h1) || document.title || '搜剧TV';
     title = title.slice(0, 60);
     if (v) { try { v.pause(); } catch (e) {} }   // 避免网页与原生同时出声
 
@@ -1118,6 +1230,22 @@
   var dpPath = '';
   /** 「线路较慢」只记一次日志，别每 300ms 刷一条 */
   var dpSlowLogged = false;
+  /* ── 阶段 9：解析加速（方案 A） ───────────────────────────────
+     站点把 30~35 条线路塞在 resolve 响应里，其中 20+ 条是「已解析」的
+     第三方 m3u8，可以直接交给系统 MediaPlayer。但站点自己不这么干 ——
+     它先拿 8 条官方线路（resolve:// 票据）反复调 resolve-line，访客态
+     全部 401，实测白等 8~12 秒才降级到第三方线路。
+     所以这里 hook 住 resolve 的响应体，把已经躺在里面的 m3u8 直接起播。 */
+  var dpLineReady = '';
+  /** 代际号：每开一轮新会话 +1，防止上一轮的异步回调把地址串到这一轮 */
+  var dpLineGen = 0;
+  /** 候选线路是否已经跑过预检（避免重复预检） */
+  var dpLineTried = false;
+  /** 站点自己解析出的第一条线路（预检全失败时的兜底，赌一把） */
+  var dpLineFirst = '';
+  /** resolve 里带回来的「当前是第几集」（1 起）。换集/续播时播放器要据此
+      高亮正确的集，否则从第 8 集续播会显示成第 1 集。 */
+  var dpCurEp = 0;
 
   function dpGet() {
     try { return JSON.parse(sessionStorage.getItem(DP_KEY) || 'null'); } catch (e) { return null; }
@@ -1132,6 +1260,305 @@
   function dpHint(txt) {
     var h = q('.tv-dp-hint');
     if (h && txt && h.textContent !== txt) { h.textContent = txt; }
+  }
+
+  /* ── 阶段 9：从 resolve 响应里直接摘线路 ─────────────────────────
+     resolve 的 line_options 里有两类线路（实测 2026-11-08）：
+       ① 官方线路：url = resolve://av_xxx 的票据，resolved=false，
+          必须再调 /v1/playback/resolve-line 换成真地址，且要求登录；
+       ② 第三方线路（极速/新浪/西瓜/红牛/魔都…）：url 直接就是 m3u8，
+          resolved=true、minimum_user_level=0，访客也能播。
+     站点把 ① 排在前面，访客态下 ① 全部 401，它要重试 9~12 次、跨 8 秒
+     才降级到 ②。这里直接把 ② 拿出来用，省掉整段无效等待。 */
+  /* ── 阶段 9：自建播放通道（签名 + 自己 resolve） ─────────────────
+     站点自己的链路是：点海报 → SPA 路由 → 拉 60+ 个 chunk → mount 播放器
+     → detail → episodes → resolve。实测第 3 步吃掉 9~13 秒（播放器组件
+     不加载完就不发 resolve），而真正需要的三个接口加起来 < 1 秒。
+     站点的签名密钥直接写死在前端 chunk（movie-card-runtime）里：
+
+       signature = HMAC-SHA256(K, `${method}\n${pathname}${search}\n${ts}\n${nonce}`)
+
+     所以我们能把这条链路自己走完，不再等站点的播放器 UI。
+     密钥/协议头一旦变，服务端会 401 —— 那时自动退回「等站点自己 resolve」
+     的老路（见 dpOnResolve），不会把用户卡住。 */
+  var SIGN_KEY = 'f39d73aa7a6426203cdee1ef17b31d3b7ea8c23f4c59c62a3a8aa0f39ee5e79d';
+  /* 这几个头站点每次请求都带，其中 build-version 跟站点发版变 —— 所以不写死，
+     从站点自己发的第一个 /v1/ 请求里学回来（see learnSigHeaders）。 */
+  var sigFixed = {};
+  var dpChanBusy = false;
+
+  function hexOf(buf) {
+    var b = new Uint8Array(buf), s = '';
+    for (var i = 0; i < b.length; i++) { s += ('0' + b[i].toString(16)).slice(-2); }
+    return s;
+  }
+
+  function learnSigHeaders(headers) {
+    try {
+      new Headers(headers).forEach(function (v, k) {
+        if (k.indexOf('x-ai-movie-') !== 0) { return; }
+        if (k === 'x-ai-movie-signature' || k === 'x-ai-movie-nonce' ||
+            k === 'x-ai-movie-timestamp') { return; }
+        sigFixed[k] = v;
+      });
+    } catch (e) {}
+  }
+
+  /** 给同源 /v1/ 请求签名。返回 Promise<headers>；环境不支持 crypto.subtle
+      （比如走 http 备用线不是安全上下文）时 reject，由调用方降级。 */
+  function signHeaders(method, path) {
+    var ts = String(Date.now());
+    var rnd = new Uint8Array(16);
+    crypto.getRandomValues(rnd);
+    var nonce = hexOf(rnd);
+    var enc = new TextEncoder();
+    var msg = method.toUpperCase() + '\n' + path + '\n' + ts + '\n' + nonce;
+    return crypto.subtle.importKey('raw', enc.encode(SIGN_KEY),
+        { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])
+      .then(function (k) { return crypto.subtle.sign('HMAC', k, enc.encode(msg)); })
+      .then(function (sig) {
+        var h = { 'accept': 'application/json' };
+        for (var k in sigFixed) { h[k] = sigFixed[k]; }
+        h['x-ai-movie-timestamp'] = ts;
+        h['x-ai-movie-nonce'] = nonce;
+        h['x-ai-movie-signature'] = hexOf(sig);
+        if (!h['x-ai-movie-client-name']) {
+          h['x-ai-movie-client-name'] = 'movie-search-frontend';
+          h['x-ai-movie-client-version'] = '1.0.0';
+          h['x-ai-movie-protocol-version'] = '2026-07-05.library-v2.playback-v1';
+        }
+        return h;
+      });
+  }
+
+  function apiGet(path) {
+    return signHeaders('GET', path)
+      .then(function (h) {
+        return fetch(path, { credentials: 'include', headers: h });
+      })
+      .then(function (r) {
+        if (!r.ok) { throw new Error('HTTP ' + r.status); }
+        return r.json();
+      });
+  }
+
+  /** 单条线路的可用性探测（拉 m3u8 文本看 #EXTM3U）。顺带把 DNS/TLS 预热掉。 */
+  function dpCheckLine(u) {
+    return new Promise(function (resolve) {
+      var done = false;
+      var to = setTimeout(function () { if (!done) { done = true; resolve(''); } }, 1600);
+      dpProbeSet[u] = 1;
+      fetch(u, { cache: 'no-store', credentials: 'omit' })
+        .then(function (r) {
+          return r.text().then(function (t) {
+            if (done) { return; }
+            done = true;
+            clearTimeout(to);
+            resolve(r.ok && t.indexOf('#EXTM3U') >= 0 ? u : '');
+          });
+        })['catch'](function () {
+          if (done) { return; }
+          done = true;
+          clearTimeout(to);
+          resolve('');
+        });
+    })['catch'](function () { return ''; });
+  }
+
+  /** 「继续观看」卡上写着「第8集 · 上次看到 4:12」—— 续播要定位到那一集。
+      普通海报卡不解析（它的文案里可能有「更新至15集」，会误判）。 */
+  function dpCardEpNum(link) {
+    var href = link && link.getAttribute ? (link.getAttribute('href') || '') : '';
+    if (href.indexOf('resume=1') < 0) { return 0; }
+    var m = (text(link) || '').match(/第\s*(\d{1,4})\s*集/);
+    return m ? parseInt(m[1], 10) : 0;
+  }
+
+  /** 自己把 detail → episodes → resolve 走完，拿到可播地址。
+      这是阶段 9 的核心：绕开站点那套「先 mount 播放器再解析」的 9~13 秒。 */
+  function dpOwnChannel(catalogId, wantEp) {
+    var epPath = '/v1/catalog/' + catalogId + '/episodes?limit=48&offset=0';
+    return Promise.all([
+      apiGet(epPath),
+      apiGet('/v1/catalog/' + catalogId + '/detail')['catch'](function () { return null; })
+    ]).then(function (res) {
+      var eps = res[0] || {};
+      var det = res[1] || {};
+      var arr = eps.episodes || eps.items || [];
+      if (!arr.length) { throw new Error('no-episodes'); }
+      var target = arr[0];
+      if (wantEp > 0) {
+        for (var i = 0; i < arr.length; i++) {
+          if (Number(arr[i].number) === wantEp) { target = arr[i]; break; }
+        }
+      }
+      if (!target || !target.token) { throw new Error('no-token'); }
+      return apiGet('/v1/playback/resolve/' + target.token + '?view=compact')
+        .then(function (j) {
+          var lines = dpPickLines(j);
+          if (!lines.length) { throw new Error('no-line'); }
+          return {
+            lines: lines, labels: arr, epIdx: arr.indexOf(target),
+            curEp: Number(target.number) || 0, title: det.title || ''
+          };
+        });
+    });
+  }
+
+  /** 前几条线路并行探测，谁先确认可用就用谁。
+      串行试的代价是「第一条不通就要干等 2 秒超时」—— 实测把 1 秒的通道
+      拖成 3.5 秒起播。并行后最坏也只多花一条的 RTT。 */
+  function dpBestLine(lines) {
+    var n = Math.min(3, lines.length);
+    return new Promise(function (resolve) {
+      var settled = 0, done = false;
+      for (var i = 0; i < n; i++) {
+        (function (u) {
+          dpCheckLine(u).then(function (ok) {
+            settled++;
+            if (done) { return; }
+            if (ok) { done = true; resolve(ok); return; }
+            if (settled >= n) { done = true; resolve(''); }
+          });
+        })(lines[i]);
+      }
+    });
+  }
+
+  /** 快速通道：点海报那一刻就自己把地址跑出来。
+      任何一步失败都静默退出 —— 站点自己那条路（dpOnResolve）还在兜着。 */
+  function dpFastChannel(link) {
+    var href = link && link.getAttribute ? (link.getAttribute('href') || '') : '';
+    var m = href.match(/\/player\/([^/?]+)/);
+    if (!m || !window.crypto || !crypto.subtle) { return; }
+    var id = m[1];
+    var wantEp = dpCardEpNum(link);
+    var t0 = Date.now();
+    dpChanBusy = true;
+    var gen = dpLineGen;
+    dpOwnChannel(id, wantEp).then(function (r) {
+      if (!dpActive || gen !== dpLineGen || dpPhase !== 'resolve') { return; }
+      log('TVDP_CHANNEL', { ms: Date.now() - t0, eps: r.labels.length, ep: r.curEp, lines: r.lines.length });
+      /* 并行试前三条，取最先确认可用的；全失败就赌第一条（理由同 dpProbeLines）。 */
+      dpBestLine(r.lines).then(function (ok) {
+        dpLaunchOwn(r, ok, gen);
+      });
+    })['catch'](function (e) {
+      dpChanBusy = false;
+      log('TVDP_CHANNEL_FAIL', { note: String(e && e.message || e).slice(0, 40), ms: Date.now() - t0 });
+    });
+  }
+
+  function dpLaunchOwn(r, url, gen) {
+    if (!dpActive || gen !== dpLineGen || dpPhase !== 'resolve') { return; }
+    dpChanBusy = false;
+    var rec = dpGet() || {};
+    /* 剧集列表直接用接口返回的真实数据（带 token），换集时不必再依赖
+       站点详情页有没有渲染 —— pickEpisode 会优先用 token 自己解析。 */
+    epList = r.labels.map(function (e) {
+      return {
+        label: e.title || ('第' + e.number + '集'),
+        el: null, token: e.token, number: Number(e.number) || 0
+      };
+    });
+    dpStart(url || r.lines[0], 'own', rec.pos || 0, r.epIdx >= 0 ? r.epIdx : 0,
+            r.title || rec.title || '');
+  }
+
+  function dpPickLines(j) {
+    var lo = (j && j.line_options) || [];
+    if (!Array.isArray(lo)) { return []; }
+    var out = [];
+    for (var i = 0; i < lo.length; i++) {
+      var o = lo[i] || {};
+      var u = String(o.url || '');
+      /* 只要 http 直给的播放列表。mp4 伪装直链（放在 .image 路径下那种）
+         反而更慢 —— 非 faststart 必须整片下完才报得出 duration。 */
+      if (u.indexOf('http') !== 0 || !/m3u8/i.test(u)) { continue; }
+      if (o.resolved === false || o.minimum_user_level > 0) { continue; }
+      if (out.indexOf(u) < 0) { out.push(u); }
+      if (out.length >= 6) { break; }
+    }
+    return out;
+  }
+
+  /** 一条一条预检（拉 m3u8 文本看有没有 #EXTM3U）。
+      预检本身还有额外好处：DNS + TLS + CDN 首包在用户还在等的时候就做完了。
+      全部失败就用第一条赌一把 —— 预检失败最常见的原因是第三方 CDN 没开
+      CORS，而原生播放器带 Referer/UA 走的是另一条路，往往能过。 */
+  function dpProbeLines(list, gen) {
+    if (dpLineTried) { return; }
+    dpLineTried = true;
+    var i = 0;
+    var done = false;
+    function finish() {
+      if (done) { return; }
+      done = true;
+      if (!dpLineReady && dpLineFirst) {
+        dpLineReady = dpLineFirst;
+        log('TVDP_LINE_GUESS', { src: dpLineFirst.slice(0, 56) });
+      }
+    }
+    function next() {
+      if (done || !dpActive || gen !== dpLineGen) { return; }
+      if (i >= list.length) { finish(); return; }
+      var u = list[i++];
+      var idx = i - 1;
+      var t0 = Date.now();
+      var to = setTimeout(function () { if (!done) { release(); next(); } }, 2500);
+      dpProbeSet[u] = 1;
+      function release() { try { delete dpProbeSet[u]; } catch (e) { dpProbeSet[u] = 0; } }
+      fetch(u, { cache: 'no-store', credentials: 'omit' })
+        .then(function (r) {
+          return r.text().then(function (txt) {
+            release();
+            if (done) { return; }
+            clearTimeout(to);
+            if (r.status >= 200 && r.status < 300 && txt.indexOf('#EXTM3U') >= 0) {
+              done = true;
+              if (dpActive && gen === dpLineGen) {
+                dpLineReady = u;
+                log('TVDP_LINE_OK', { idx: idx, ms: Date.now() - t0, src: u.slice(0, 56) });
+              }
+            } else {
+              log('TVDP_LINE_BAD', { idx: idx, s: r.status });
+              next();
+            }
+          });
+        })['catch'](function () {
+          release();
+          if (done) { return; }
+          clearTimeout(to);
+          log('TVDP_LINE_ERR', { idx: idx });
+          next();
+        });
+    }
+    next();
+  }
+
+  /** 站点自己发的 resolve 一回来就把线路摘出来，不等它的播放器初始化。 */
+  function dpOnResolve(p) {
+    /* 自建通道正在跑（dpChanBusy）时先不插手 —— 它比站点早得多，
+       两边同时挑线路会互相覆盖。等它失败退出（dpChanBusy=false）这里才接管。 */
+    if (!dpActive || dpPhase !== 'resolve' || dpChanBusy ||
+        dpLineTried || dpLineReady) { return; }
+    var gen = dpLineGen;
+    if (!p || typeof p.then !== 'function') { return; }
+    p.then(function (r) {
+      if (!r || r.status !== 200) { return; }
+      if (!dpActive || gen !== dpLineGen || dpLineReady) { return; }
+      r.clone().json().then(function (j) {
+        if (!dpActive || gen !== dpLineGen || dpLineReady) { return; }
+        var list = dpPickLines(j);
+        var total = ((j && j.line_options) || []).length;
+        var ce = (j && j.current_episode) || {};
+        dpCurEp = ce.sequence_index || ce.episode_number || 0;
+        log('TVDP_LINES', { n: list.length, total: total, ep: dpCurEp });
+        if (!list.length) { return; }
+        dpLineFirst = list[0];
+        dpProbeLines(list, gen);
+      })['catch'](function () {});
+    })['catch'](function () {});
   }
 
   function dpOverlay() {
@@ -1191,9 +1618,15 @@
     dpSeq = mediaSeq;
     dpVideo = q('video');
     dpOldSrc = dpVideo ? (dpVideo.currentSrc || dpVideo.getAttribute('src') || '') : '';
+    /* 新的一轮：线路候选清空，代际 +1 让上一轮还在飞的异步回调自动作废。 */
+    dpLineReady = '';
+    dpLineTried = false;
+    dpLineFirst = '';
+    dpLineGen++;
+    dpChanBusy = false;
     var rec = {
       t: Date.now(), phase: phase,
-      title: dp.title || '', poster: dp.poster || ''
+      title: dp.title || '', poster: dp.poster || '', pos: dp.pos || 0
     };
     dpSet(rec);
     dpOverlay();
@@ -1220,9 +1653,60 @@
     return true;
   }
 
-  function dpStart(src) {
+  function dpStart(src, note, startPos, epIdx, titleOverride) {
     if (dpPhase === 'playing') { return; }   // pickEpisode 自己那条路可能已经起播
-    startNativePlay(src, 0, dpPhase === 'switch' ? 'switch' : 'resolve');
+    var idx = typeof epIdx === 'number' && epIdx >= 0 ? epIdx : 0;
+    startNativePlay(src, idx, note || (dpPhase === 'switch' ? 'switch' : 'resolve'),
+                    startPos, titleOverride);
+  }
+
+  /** 起播太快时详情页还没渲染出剧集按钮，collectEpisodes() 是空的 ——
+      直接起播会让播放器的选集面板一集都没有。用 detail 接口的集数补一份
+      「第N集」标签（detail 往往已在站点缓存里，命中就是几毫秒），
+      换集时再按序号去站点 DOM 里找真实按钮（见 pickEpisode）。 */
+  function dpFetchEpLabels(cb) {
+    var m = location.pathname.match(/\/player\/([^/?]+)/);
+    if (!m) { cb(null); return; }
+    var done = false;
+    var to = setTimeout(function () {
+      if (!done) { done = true; cb(null); }
+    }, 1200);
+    fetch('/v1/catalog/' + m[1] + '/detail', { credentials: 'include' })
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        if (done) { return; }
+        done = true;
+        clearTimeout(to);
+        var n = j.available_episode_count || j.current_episode_count ||
+                j.episode_count || j.total_episode_count || 0;
+        if (!n || n > 800) { cb(null); return; }
+        var out = [];
+        for (var i = 1; i <= n; i++) { out.push({ label: '第' + i + '集', el: null }); }
+        log('TVDP_EP_FALLBACK', { n: n });
+        cb(out);
+      })['catch'](function () {
+        if (done) { return; }
+        done = true;
+        clearTimeout(to);
+        cb(null);
+      });
+  }
+
+  /** 首播快路径：线路已就绪，只补最后一样东西（剧集数）就开播。 */
+  function dpFastStart(src) {
+    var rec = dpGet() || {};
+    var pos = rec.pos || 0;
+    var epIdx = dpCurEp > 0 ? dpCurEp - 1 : 0;
+    var list = epList.length ? epList : collectEpisodes();
+    if (list.length) {
+      epList = list;
+      dpStart(src, 'fast', pos, epIdx);
+      return;
+    }
+    dpFetchEpLabels(function (labels) {
+      if (labels && labels.length) { epList = labels; }
+      dpStart(src, 'fast', pos, epIdx);
+    });
   }
 
   /** 播放器里换集 / 下一集：把遮罩切回「等地址」，站点在后台重新解析。
@@ -1269,6 +1753,15 @@
        声音只给原生播放器。 */
     var v = q('video');
     if (v) { try { if (!v.muted) { v.muted = true; } } catch (e) {} }
+    /* 阶段 9：resolve 里摘出来的线路一预检通过就起播，不再等站点那套
+       「官方线路 401 重试 → 降级」（实测白等 8~12 秒）。
+       只在首次解析阶段走：换集由 pickEpisode 带集号起播，这里抢会撞车。 */
+    if (dpPhase === 'resolve' && dpLineReady) {
+      var fast = dpLineReady;
+      dpLineReady = '';
+      dpFastStart(fast);
+      return;
+    }
     /* 判据必须和工具栏「原生播放」完全一致（currentMedia）：站点把整部 mp4
        藏在 .image 路径下伪装（CDN 谎报 image/*，字节是 ftyp isom），
        按扩展名过滤会把真直链当成封面图跳过 —— 实测就是这样一直等到超时。
@@ -1307,14 +1800,35 @@
     }
   }
 
+  /** 「继续观看」卡片上写着「嫁金钗 · 第1集 · 上次看到 30:53 · 64%」。
+      resolve 响应里没有这个位置（keys 只有 token/current_episode/line_options），
+      站点是在自己的播放器里 seek 的 —— 我们直连线路就得自己把它读出来，
+      否则从「上次看到 30:53」点进去会从头播。只在 resume 卡上解析，
+      避免把片名里的数字误当成时间。 */
+  function dpCardPos(link) {
+    var href = link && link.getAttribute ? (link.getAttribute('href') || '') : '';
+    if (href.indexOf('resume=1') < 0) { return 0; }
+    var txt = text(link) || '';
+    var m = txt.match(/(\d{1,2}):(\d{2}):(\d{2})/);
+    if (m) {
+      return (parseInt(m[1], 10) * 3600 + parseInt(m[2], 10) * 60 + parseInt(m[3], 10)) * 1000;
+    }
+    m = txt.match(/(\d{1,2}):(\d{2})/);
+    if (m) { return (parseInt(m[1], 10) * 60 + parseInt(m[2], 10)) * 1000; }
+    return 0;
+  }
+
   function dpBegin(link) {
     var title = text(link.querySelector('.home-feed-card-title, h3')) || '';
     var img = link.querySelector('img');
     var poster = img ? (img.currentSrc || img.getAttribute('src') || '') : '';
     dpSession = false;
     dpActive = false;
-    dpSet({ t: Date.now(), title: title, poster: poster });   // 先把标题海报放进记录
+    dpSet({ t: Date.now(), title: title, poster: poster, pos: dpCardPos(link) });   // 先把标题海报放进记录
     dpWait('resolve');
+    /* 阶段 9：不等站点的播放器 UI 了 —— 自己带签名把 detail/episodes/resolve
+       走完，通常 1 秒内就能把地址拿到（站点那条路要 9~13 秒）。 */
+    dpFastChannel(link);
     log('TVDP_BEGIN', { title: title.slice(0, 24) });
   }
 
@@ -1339,7 +1853,88 @@
       active: dpActive, phase: dpPhase, session: dpSession,
       mask: !!q('.tv-dp'),
       title: dp ? dp.title : '', waitedMs: dp && dp.t ? (Date.now() - dp.t) : -1,
-      mediaSeq: mediaSeq, dpSeq: dpSeq
+      mediaSeq: mediaSeq, dpSeq: dpSeq,
+      lineReady: !!dpLineReady, lineTried: dpLineTried
+    });
+  };
+
+  /* ── 阶段 9：预热播放页的 chunk（方案 B） ───────────────────────
+     站点是 vite 多 chunk 应用：首页只加载十来个共享 chunk，播放页还要再拉
+     50+ 个细粒度 chunk（电视上每个 40~150ms，串起来 2~4 秒）。这段正好压在
+     「点海报 → 详情页 mount → 站点发 resolve」这条关键路径上。
+     做法：每次进播放页时把同源 js 列表自学习存进 localStorage（chunk 名带
+     hash，站点发版就会变，所以每次访问都刷新），回到首页空闲时用
+     <link rel=prefetch> 预取。预取命中 HTTP 缓存后，点海报那一下只剩路由。 */
+  var WARM_KEY = '__tvWarmChunks';
+  var warmScheduledFor = '';
+  var warmAdded = {};
+
+  function warmCollect() {
+    if (location.pathname.indexOf('/player/') !== 0) { return; }
+    try {
+      var R = performance.getEntriesByType('resource');
+      var list = [];
+      for (var i = 0; i < R.length && list.length < 90; i++) {
+        var n = R[i].name || '';
+        if (n.indexOf(location.origin) !== 0 || !/\.js(\?|$)/.test(n)) { continue; }
+        var p = n.slice(location.origin.length);
+        if (list.indexOf(p) < 0) { list.push(p); }
+      }
+      /* 少于 10 个说明页面还没加载完，等下次路径变化再说，别把残缺列表存进去 */
+      if (list.length < 10) { return; }
+      localStorage.setItem(WARM_KEY, JSON.stringify(list));
+      log('TVWARM_COLLECT', { n: list.length });
+    } catch (e) {}
+  }
+
+  function warmPrefetch() {
+    if (location.pathname !== '/') { return; }
+    var list;
+    try { list = JSON.parse(localStorage.getItem(WARM_KEY) || 'null'); } catch (e) { return; }
+    if (!list || !list.length) { return; }
+    var head = document.head || document.documentElement;
+    if (!head) { return; }
+    /* 用 DOM 里已有的 link 去重，不只靠内存里的 warmAdded —— 脚本被注入两次
+       时会各有一份 warmAdded，实测会出现同一批 chunk 被建两遍 link。 */
+    var have = {};
+    var ex = document.querySelectorAll('link[data-tv-warm]');
+    for (var k = 0; k < ex.length; k++) {
+      have[ex[k].getAttribute('href') || ''] = 1;
+    }
+    var n = 0;
+    for (var i = 0; i < list.length && n < 40; i++) {
+      var p = list[i];
+      if (typeof p !== 'string' || p.charAt(0) !== '/' || warmAdded[p] || have[p]) { continue; }
+      warmAdded[p] = 1;
+      var l = document.createElement('link');
+      l.rel = 'prefetch';
+      l.setAttribute('as', 'script');
+      l.href = p;
+      l.setAttribute('data-tv-warm', '');
+      head.appendChild(l);
+      n++;
+    }
+    if (n) { log('TVWARM_PREFETCH', { n: n }); }
+  }
+
+  /** 每个路径只调度一次；首页等 5 秒（站内数据先加载完），播放页等 6 秒
+      （chunk 陆续到达，收得越晚列表越全）。 */
+  function warmSchedule() {
+    var p = location.pathname;
+    if (p === warmScheduledFor) { return; }
+    warmScheduledFor = p;
+    if (p.indexOf('/player/') === 0) { setTimeout(warmCollect, 6000); }
+    else if (p === '/') { setTimeout(warmPrefetch, 5000); }
+  }
+
+  window.__tvEpState = function () {
+    return JSON.stringify({
+      n: epList.length,
+      withToken: epList.filter(function (e) { return !!e.token; }).length,
+      withEl: epList.filter(function (e) { return !!e.el; }).length,
+      first: epList[0] ? epList[0].label : '',
+      second: epList[1] ? epList[1].label : '',
+      path: location.pathname.slice(0, 24)
     });
   };
 
@@ -1353,6 +1948,14 @@
       epExpandedTried = false;
     }
     scanVideo();
+    /* 原生播放器已经在播时，把站点自己那个 <video> 按下去：它在后台
+       接着解析并起播同一部片，白占带宽和解码器（电视上解码器只有两三个）。
+       进度回写那 2 秒（progressSyncing）期间例外，那时需要它在播。 */
+    if (dpPhase === 'playing' && !progressSyncing) {
+      var pv = q('video');
+      if (pv && !pv.paused) { try { pv.pause(); } catch (e) {} }
+    }
+    warmSchedule();
     /* 只上报一次状态：原生侧启动时会主动 emit qrReady，这里做兜底 */
     if (!qrInfo && (mode === 'qr' || mode === 'login')) { loadQr(); }
   }

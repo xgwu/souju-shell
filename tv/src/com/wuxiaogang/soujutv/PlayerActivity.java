@@ -382,7 +382,11 @@ public class PlayerActivity extends Activity
         try {
             if (positionMs > 0) mp.seekTo((int) positionMs);
             mp.start();
-            BridgeLog.i("player", "PLAYING duration=" + mp.getDuration());
+            /* 带上解码出的画面尺寸：电视上 screencap/screenrecord 抓不到
+               SurfaceView（硬件视频层），出问题是黑屏还是有画面只能靠这两个数
+               判断 —— 非 0 就说明视频轨真的解出来了。 */
+            BridgeLog.i("player", "PLAYING duration=" + mp.getDuration()
+                    + " video=" + mp.getVideoWidth() + "x" + mp.getVideoHeight());
         } catch (Throwable t) {
             fail("起播失败：" + t.getClass().getSimpleName());
             return;
