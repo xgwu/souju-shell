@@ -15,8 +15,8 @@ import java.util.Set;
 public final class ShellConfig {
 
     public static final String TAG = "SoujuTV";
-    public static final String APP_VERSION = "0.2.0";
-    public static final int APP_BUILD = 2;
+    public static final String APP_VERSION = "0.3.0";
+    public static final int APP_BUILD = 3;
     public static final String BRIDGE_VERSION = "1.1.0-tv";
 
     /** 内置线路。与 iOS 版 ShellConfig.builtinDomains 对齐。 */

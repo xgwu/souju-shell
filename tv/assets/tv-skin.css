@@ -1,0 +1,492 @@
+/* tv-skin.css — 搜剧 AI 电视版版式皮肤（阶段 3）
+ *
+ * 目标坐标系：1280×720 CSS px @ dpr 1.5（雷鸟鹤7 Pro 75R675C 实测）。
+ * 皮肤是纯 CSS 覆盖，不改站点一行代码；由 tv-skin.js 在 html 上打
+ * data-tv-skin="on" 后生效，样式表始终被追加到 head 末尾。
+ *
+ * Chromium 83 硬约束（写了也无效，别写）：
+ *   flex gap / aspect-ratio / :has() / :focus-visible / inset / content-visibility
+ *   / :is() / 复杂 :not() 选择器。
+ * 可用的：CSS Grid + grid-gap、object-fit、clamp()、backdrop-filter、:not(简单选择器)。
+ *
+ * 实测锚点（2026-11-07 12:2x，CDP 量取）：
+ *   .movie-main-shell      padding-left:288px → 改 256px
+ *   .movie-side-menu-panel 272×720           → 改 216×720
+ *   .app-primary-nav-desktop 235×44 @右上    → 改成内容区顶部一整行
+ *   .movie-composer-root  768×104 / 16px     → 满宽 / 26px
+ *   .home-feed-rail-track grid 180px×10 横向滚 → 6 列自适应网格、无横向滚动
+ *   .home-feed-card       180×270 / 标题15px → 自适应 / 标题20px
+ */
+
+/* ── 1. 深色令牌层 ───────────────────────────────────────────────
+   站点自己就是 data-theme="movie-dark"，这里把它的 --movie-* 令牌
+   重映射成与 iOS souju-dark 同一套色值，避免 TV 与手机看起来是两个产品。
+   高特异性选择器 + style 标签位置兜底（tv-skin.js 会把它挪到 head 末尾）。 */
+html[data-tv-skin="on"] {
+  --tv-bg: #0E0E10;
+  --tv-surf: #191A1D;
+  --tv-surf2: #22242A;
+  --tv-txt: #F2F1ED;
+  --tv-txt2: #BCB9B3;
+  --tv-txt3: #8C8983;
+  --tv-edge: rgba(255, 255, 255, 0.12);
+  --tv-accent: #FF6B42;
+
+  --movie-bg: #0E0E10;
+  --movie-bg-elevated: #191A1D;
+  --movie-surface: #191A1D;
+  --movie-surface-strong: #22242A;
+  --movie-border: rgba(255, 255, 255, 0.14);
+  --movie-border-soft: rgba(255, 255, 255, 0.07);
+  --movie-text: #F2F1ED;
+  --movie-text-muted: #BCB9B3;
+  --movie-text-subtle: #8C8983;
+  --movie-primary: #F2F1ED;
+  --movie-primary-strong: #FF6B42;
+  --movie-primary-foreground: #12100F;
+  --movie-accent: #FF6B42;
+  --movie-accent-muted: rgba(255, 107, 66, 0.16);
+  /* 站点 CSS 里是 `.movie-main-shell{padding-left:var(--movie-sidebar-width)!important}`。
+     变量定义在 :root，自己带 !important，只覆盖 padding-left 会被反压。
+     把变量直接设成安全区宽度，站点自己就把主内容推到正确位置。 */
+  --movie-sidebar-width: 40px;
+}
+
+html[data-tv-skin="on"],
+html[data-tv-skin="on"] body {
+  background: #0E0E10 !important;
+  color: #F2F1ED !important;
+  overflow-x: hidden !important;
+}
+html[data-tv-skin="on"] main.movie-app-bg,
+html[data-tv-skin="on"] .movie-app-bg {
+  background: #0E0E10 !important;
+  overflow-x: hidden !important;
+}
+
+/* ── 2. 左侧栏：实测后决定隐藏 ───────────────────────────────────
+   初版方案是「收窄到 216px 并放大侧栏文字」，CDP 截图推翻了它：
+   这个侧栏不是主导航，而是用户信息抽屉（头像 / 成长值 / 扫码 / 分享 /
+   通知 / 更新 / 播放记录 / 登录）。放大到 20px 后内容换行重叠、被裁切，
+   占掉 272px 却只提供 TV 上用不到的功能。
+   站点的真正主导航是 .app-primary-nav-desktop（首页/短剧/历史/片单），
+   已由第 3 节做成满宽顶部导航。隐藏侧栏后内容区 1200px，
+   6 列海报每张正好 190 CSS px —— 与方案文档 §6 的数值一致。
+   代价：TV 端暂不提供扫码/分享/账号登录入口，阶段 4 手机输入时一并补。 */
+html[data-tv-skin="on"] [data-tv-nav-host],
+html[data-tv-skin="on"] .movie-side-menu-panel,
+html[data-tv-skin="on"] .movie-menu-scrim {
+  display: none !important;
+}
+
+/* ── 3. 顶部主导航 ───────────────────────────────────────────────
+   原本是右上角 235×44 / 13px 的小 tab；改成内容区顶部一整行。 */
+html[data-tv-skin="on"] .app-primary-nav-desktop {
+  position: fixed !important;
+  top: 8px !important;
+  left: 40px !important;
+  right: 40px !important;
+  bottom: auto !important;
+  width: auto !important;
+  max-width: none !important;
+  height: 58px !important;
+  padding: 0 8px !important;
+  margin: 0 !important;
+  border: 0 !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.10) !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  justify-content: flex-start !important;
+  z-index: 60 !important;
+}
+html[data-tv-skin="on"] .app-primary-nav-link {
+  font-size: 26px !important;
+  line-height: 52px !important;
+  height: 52px !important;
+  min-width: 108px !important;
+  padding: 0 20px !important;
+  margin-right: 10px !important;
+  text-align: center !important;
+  border-radius: 10px !important;
+  color: #BCB9B3 !important;
+}
+html[data-tv-skin="on"] .app-primary-nav-link.is-active,
+html[data-tv-skin="on"] .app-primary-nav-link[aria-current="page"] {
+  color: #F2F1ED !important;
+  background: rgba(255, 107, 66, 0.18) !important;
+  border-bottom: 3px solid #FF6B42 !important;
+}
+
+/* ── 4. 主内容区 / 安全区 ────────────────────────────────────────
+   左栏隐藏后内容满宽；40px 是电视 overscan 安全边距（1280 的 3%）。
+   三类名连写是为了压过站点的 `lg:pl-[288px]` 派生规则：
+   只用 .movie-main-shell 时实测 padding-left 仍是 288px。 */
+html[data-tv-skin="on"] .movie-main-shell.movie-page-shell,
+html[data-tv-skin="on"] .movie-main-shell,
+html[data-tv-skin="on"] .movie-page-shell {
+  padding-left: 40px !important;
+  padding-right: 40px !important;
+}
+html[data-tv-skin="on"] .movie-page-body {
+  padding-top: 66px !important;
+  overflow-x: hidden !important;
+  overscroll-behavior-y: contain;
+}
+html[data-tv-skin="on"] .movie-page-body > div {
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+  max-width: none !important;
+  width: 100% !important;
+  overflow-x: hidden !important;
+}
+html[data-tv-skin="on"] .movie-page-body > div > * {
+  max-width: none !important;
+}
+
+/* 文字基线：整块主内容统一 22px（13px/11px 在 2.5m 外完全不可读），
+   再对标题 / 卡片 / 徽章分别定向覆盖。用通配 !important 是刻意的：
+   站点 Tailwind 原子类（text-xs、text-[11px]）特异性太低且数量 227 处，
+   逐条覆盖既脆弱又跟不上站点改版。 */
+html[data-tv-skin="on"] .movie-page-body * {
+  font-size: 22px !important;
+}
+html[data-tv-skin="on"] .movie-page-body h1 { font-size: 34px !important; }
+html[data-tv-skin="on"] .movie-page-body h2 { font-size: 28px !important; }
+html[data-tv-skin="on"] .movie-page-body h3 { font-size: 24px !important; }
+html[data-tv-skin="on"] .movie-page-body svg,
+html[data-tv-skin="on"] .movie-page-body path,
+html[data-tv-skin="on"] .movie-page-body circle,
+html[data-tv-skin="on"] .movie-page-body rect {
+  font-size: initial !important;
+}
+
+/* 首页大标题与站点名重复（左上角 logo 已有），隐藏整块 */
+html[data-tv-skin="on"] [data-tv-hero] {
+  display: none !important;
+}
+
+/* ── 5. 搜索框 / 热词 ──────────────────────────────────────────── */
+html[data-tv-skin="on"] .movie-composer-root {
+  width: 100% !important;
+  max-width: none !important;
+  min-height: 0 !important;
+  height: auto !important;
+  margin: 4px 0 0 0 !important;
+  padding: 6px 18px !important;
+  border: 2px solid rgba(255, 255, 255, 0.18) !important;
+  border-radius: 16px !important;
+  background: #191A1D !important;
+}
+html[data-tv-skin="on"] .movie-composer-text-input,
+html[data-tv-skin="on"] .movie-composer-root textarea,
+html[data-tv-skin="on"] .movie-composer-root input {
+  font-size: 26px !important;
+  line-height: 1.3 !important;
+  width: 100% !important;
+  max-width: none !important;
+  min-height: 38px !important;
+  max-height: 54px !important;
+  padding: 2px 0 !important;
+}
+html[data-tv-skin="on"] .movie-composer-root > * {
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
+}
+html[data-tv-skin="on"] .movie-composer-mode-switch,
+html[data-tv-skin="on"] .movie-composer-mode-thumb {
+  min-height: 34px !important;
+  height: 34px !important;
+}
+html[data-tv-skin="on"] .movie-composer-root ::placeholder {
+  font-size: 24px !important;
+  color: #8C8983 !important;
+}
+html[data-tv-skin="on"] .movie-composer-mode-switch,
+html[data-tv-skin="on"] .movie-composer-mode-thumb {
+  min-height: 44px !important;
+}
+html[data-tv-skin="on"] .movie-home-prompt-groups {
+  display: block !important;
+  width: 100% !important;
+  min-height: 0 !important;
+  overflow: visible !important;
+  margin: 8px 0 2px 0 !important;
+  padding: 0 !important;
+}
+html[data-tv-skin="on"] .movie-home-prompt-groups [data-home-suggestion-group] {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  align-items: center !important;
+  margin-bottom: 0 !important;
+  padding: 0 !important;
+}
+/* 组标题「热门影片 / 推荐输入」在 TV 上不值得占一整行 */
+html[data-tv-skin="on"] .movie-home-prompt-groups [data-home-suggestion-group] > span,
+html[data-tv-skin="on"] .movie-home-prompt-groups > span {
+  display: none !important;
+}
+/* 第二组「推荐输入」是次要入口，TV 首屏优先给海报墙让位。
+   特异性必须压过上面 [data-home-suggestion-group] 的 display:flex，
+   否则同带 !important 时会输给 (0,3,1) 的那条。 */
+html[data-tv-skin="on"] .movie-home-prompt-groups [data-home-suggestion-group][data-tv-secondary-chips] {
+  display: none !important;
+}
+html[data-tv-skin="on"] .movie-chip {
+  font-size: 19px !important;
+  min-height: 40px !important;
+  height: auto !important;
+  margin: 0 6px 0 0 !important;
+  padding: 2px 14px !important;
+  border-radius: 20px !important;
+  border-color: rgba(255, 255, 255, 0.18) !important;
+}
+html[data-tv-skin="on"] .movie-chip > span {
+  font-size: 19px !important;
+}
+
+/* ── 6b. 首屏排序：把「本周追剧日历」挪到海报墙之后 ─────────────
+   目标：首屏能完整看到第一行 6 张海报。日历信息密度高（7 个日期 +
+   4 组剧集小卡），全放大后会把海报推到 y≈1100，等于首屏全是文字。
+   用 flex order 而不是 display:none —— 功能不丢，只是排到后面。
+   data-tv-late / data-tv-feed 由 tv-skin.js 打在 .movie-page-body > div
+   的直接子元素上，保证 order 在同一个 flex 容器里生效。 */
+html[data-tv-skin="on"] [data-tv-late] { order: 3 !important; }
+html[data-tv-skin="on"] [data-tv-feed] { order: 2 !important; }
+/* 「继续下滑，或点击加载更多」：保留（站点靠它触发无限滚动），但排到最后 */
+html[data-tv-skin="on"] [data-tv-tail] { order: 4 !important; }
+html[data-tv-skin="on"] .movie-page-body > div {
+  display: flex !important;
+  flex-direction: column !important;
+}
+html[data-tv-skin="on"] .movie-button-primary {
+  min-height: 56px !important;
+  font-size: 24px !important;
+}
+
+/* ── 6. 今晚首选横幅（tv-skin.js 生成） ──────────────────────────
+   数据取自首张 .home-feed-card，不额外请求网络。 */
+html[data-tv-skin="on"] .tv-tonight-card {
+  position: relative !important;
+  display: block !important;
+  width: 100% !important;
+  height: 148px !important;
+  margin: 6px 0 10px 0 !important;
+  overflow: hidden !important;
+  border: 1px solid rgba(255, 255, 255, 0.14) !important;
+  border-radius: 18px !important;
+  background: #191A1D !important;
+  text-decoration: none !important;
+}
+html[data-tv-skin="on"] .tv-tonight-card > img {
+  position: absolute !important;
+  top: 0 !important;
+  left: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover !important;
+  object-position: center 38% !important;
+  opacity: 0.72 !important;
+}
+html[data-tv-skin="on"] .tv-tonight-shade {
+  position: absolute !important;
+  top: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  background: linear-gradient(90deg, rgba(14,14,16,0.96) 0%,
+              rgba(14,14,16,0.72) 46%, rgba(14,14,16,0.06) 100%) !important;
+}
+html[data-tv-skin="on"] .tv-tonight-copy {
+  position: absolute !important;
+  left: 28px !important;
+  right: 28px !important;
+  bottom: 18px !important;
+  color: #F2F1ED !important;
+}
+html[data-tv-skin="on"] .tv-tonight-label {
+  display: inline-block !important;
+  font-size: 18px !important;
+  line-height: 1.2 !important;
+  padding: 4px 12px !important;
+  margin-bottom: 8px !important;
+  border-radius: 8px !important;
+  background: #FF6B42 !important;
+  color: #12100F !important;
+  font-weight: 700 !important;
+}
+html[data-tv-skin="on"] .tv-tonight-title {
+  display: block !important;
+  font-size: 36px !important;
+  line-height: 1.2 !important;
+  font-weight: 800 !important;
+  overflow: hidden !important;
+  white-space: nowrap !important;
+  text-overflow: ellipsis !important;
+  color: #F2F1ED !important;
+}
+html[data-tv-skin="on"] .tv-tonight-meta {
+  display: block !important;
+  font-size: 19px !important;
+  line-height: 1.4 !important;
+  color: #BCB9B3 !important;
+}
+
+/* ── 7. 本周追剧日历：去掉横滑，改成换行排布 ───────────────────
+   焦点引擎只改 scrollTop，横向滚动容器里的后续卡片遥控器够不到，
+   所以 TV 上所有横滑列表都必须改成网格 / wrap。 */
+html[data-tv-skin="on"] .home-watch-calendar-list {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  width: 100% !important;
+  max-width: none !important;
+  height: auto !important;
+  overflow: visible !important;
+  grid-template-columns: none !important;
+}
+html[data-tv-skin="on"] .home-watch-calendar-item {
+  width: 190px !important;
+  min-width: 190px !important;
+  height: 76px !important;
+  margin: 0 10px 10px 0 !important;
+}
+html[data-tv-skin="on"] .home-watch-calendar-poster,
+html[data-tv-skin="on"] .home-watch-calendar-poster-image {
+  height: 76px !important;
+}
+html[data-tv-skin="on"] .home-watch-calendar-item-copy * {
+  font-size: 18px !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+}
+
+/* ── 8. 海报墙：6 列网格（阶段 3 的核心） ─────────────────────── */
+html[data-tv-skin="on"] .movie-page-body section {
+  overflow: visible !important;
+}
+/* 每个 rail 前的「大家都在看 / 今晚打开就能接上的热播片单」标题区
+   原本上下各留一大截，TV 首屏要留给第一行海报。 */
+html[data-tv-skin="on"] [data-tv-feed] h2 {
+  font-size: 26px !important;
+  line-height: 1.2 !important;
+  margin: 0 0 2px 0 !important;
+  padding: 0 !important;
+}
+html[data-tv-skin="on"] [data-tv-feed] p {
+  font-size: 18px !important;
+  line-height: 1.2 !important;
+  margin: 0 0 8px 0 !important;
+  padding: 0 !important;
+}
+html[data-tv-skin="on"] .home-feed-rail {
+  margin-top: 6px !important;
+}
+html[data-tv-skin="on"] .home-feed-rail,
+html[data-tv-skin="on"] .home-feed-rail-track {
+  width: 100% !important;
+  max-width: none !important;
+  height: auto !important;
+  min-height: 0 !important;
+  overflow: visible !important;
+  padding: 0 !important;
+  margin: 0 !important;
+}
+html[data-tv-skin="on"] .home-feed-rail-track {
+  display: grid !important;
+  grid-template-columns: repeat(6, minmax(0, 1fr)) !important;
+  grid-auto-flow: row !important;
+  grid-gap: 22px 12px !important;
+}
+/* Chrome 83 没有 aspect-ratio，用 padding-bottom:150% 做 2:3 海报比例。
+   比例跟着列宽走：190px 列 → 285px 高，换分辨率/改列数都不用改数值。 */
+html[data-tv-skin="on"] .home-feed-card {
+  position: relative !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  height: auto !important;
+  padding-bottom: 150% !important;
+  border-radius: 12px !important;
+  border: 1px solid rgba(255, 255, 255, 0.10) !important;
+  overflow: hidden !important;
+}
+html[data-tv-skin="on"] .home-feed-card-link {
+  display: block !important;
+  position: absolute !important;
+  top: 0 !important;
+  left: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+}
+html[data-tv-skin="on"] .home-feed-card-image {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover !important;
+  object-position: center 30% !important;
+}
+html[data-tv-skin="on"] .home-feed-card-shade {
+  background: linear-gradient(0deg, rgba(10,10,12,0.92) 0%,
+              rgba(10,10,12,0.36) 42%, rgba(10,10,12,0) 72%) !important;
+}
+html[data-tv-skin="on"] .home-feed-card-copy {
+  left: 10px !important;
+  right: 10px !important;
+  bottom: 10px !important;
+}
+html[data-tv-skin="on"] .movie-page-body h3.home-feed-card-title {
+  font-size: 20px !important;
+  line-height: 1.25 !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+}
+html[data-tv-skin="on"] .home-feed-card-meta {
+  font-size: 16px !important;
+  line-height: 1.3 !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  color: #BCB9B3 !important;
+}
+html[data-tv-skin="on"] .home-feed-card-badges {
+  top: 8px !important;
+  left: 8px !important;
+  right: 8px !important;
+}
+html[data-tv-skin="on"] .home-feed-card-status,
+html[data-tv-skin="on"] .home-feed-card-heat {
+  font-size: 16px !important;
+  padding: 2px 8px !important;
+}
+
+/* ── 9. 焦点手感：卡片放大 + 环留白 ───────────────────────────── */
+html[data-tv-skin="on"] .home-feed-card-link.tv-focused,
+html[data-tv-skin="on"] .home-watch-calendar-item-link.tv-focused,
+html[data-tv-skin="on"] .tv-tonight-card.tv-focused {
+  position: relative !important;
+  z-index: 5 !important;
+  -webkit-transform: scale(1.04) !important;
+  transform: scale(1.04) !important;
+}
+
+/* ── 10. 详情页 / 播放器的最小适配（阶段 5 再细化） ─────────────
+   主要保证进到二级页不会退回 11px 小字，按钮够得着。 */
+html[data-tv-skin="on"] .movie-button-secondary {
+  min-height: 52px !important;
+  font-size: 22px !important;
+  padding: 8px 18px !important;
+}
+html[data-tv-skin="on"] .movie-episode-item {
+  min-height: 56px !important;
+  font-size: 22px !important;
+}
+html[data-tv-skin="on"] .movie-surface-tab,
+html[data-tv-skin="on"] .movie-player-content-tabs > * {
+  min-height: 52px !important;
+  font-size: 22px !important;
+}
+
+/* 电视没有鼠标，去掉 hover 态挂死与滚动条视觉噪声 */
+html[data-tv-skin="on"] *::-webkit-scrollbar {
+  width: 0 !important;
+  height: 0 !important;
+}

@@ -44,6 +44,10 @@ public class MainActivity extends Activity
     private int lineIndex = 0;
     private boolean failureHandledForLoad = false;
     private boolean pageFinishedForLoad = false;
+    /** 阶段 3：TV 皮肤开关。adb --es tvskin off 可关掉皮肤做 A/B 对比，不用重装。 */
+    private boolean skinEnabled = true;
+    /** 皮肤锚点缺失只提示一次，避免 SPA 每次换页都弹 Toast。 */
+    private boolean healthWarned = false;
     private long lastKeyAt = 0;
     private long lastBackAt = 0;
     private long lastFinishAt = 0;
@@ -65,13 +69,14 @@ public class MainActivity extends Activity
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         BridgeLog.init(this);
+        applyIntentConfig(getIntent());
         BridgeLog.i("boot", "BOOT sdk=" + Build.VERSION.SDK_INT
                 + " abi=" + (Build.SUPPORTED_ABIS.length > 0 ? Build.SUPPORTED_ABIS[0] : "?")
                 + " model=" + Build.MODEL
                 + " webview=" + webViewPackageName()
+                + " version=" + ShellConfig.APP_VERSION
+                + " skin=" + skinEnabled
                 + " log=" + BridgeLog.path());
-
-        applyIntentConfig(getIntent());
 
         content = new FrameLayout(this);
         content.setBackgroundColor(0xFF0E0E10);
@@ -120,6 +125,12 @@ public class MainActivity extends Activity
             if (n > 0) lines = Arrays.copyOf(normalized, n);
         }
         ShellConfig.addTrustedHosts(intent.getStringExtra("trusted"));
+        String skin = intent.getStringExtra("tvskin");
+        if (skin != null) {
+            String v = skin.trim().toLowerCase();
+            skinEnabled = !("off".equals(v) || "0".equals(v) || "false".equals(v));
+            BridgeLog.i("boot", "SKIN_OVERRIDE " + skin + " → " + skinEnabled);
+        }
     }
 
     private void loadFromIntent(Intent intent) {
@@ -158,7 +169,7 @@ public class MainActivity extends Activity
             bridge.invalidateToken();
             BridgeLog.w("bridge", "UNTRUSTED 主文档，不下发桥令牌：" + url);
         }
-        TvFocusEngine.inject(web, this, bridge, url, "start", trusted);
+        TvFocusEngine.inject(web, this, bridge, url, "start", trusted, skinEnabled);
     }
 
     @Override
@@ -173,7 +184,7 @@ public class MainActivity extends Activity
             lastFinishAt = now;
         }
         boolean trusted = ShellConfig.isTrustedHost(ShellConfig.hostOf(url));
-        TvFocusEngine.inject(web, this, bridge, url, phase, trusted);
+        TvFocusEngine.inject(web, this, bridge, url, phase, trusted, skinEnabled);
         if ("finish".equals(phase)) {
             pageFinishedForLoad = true;
             handler.removeCallbacks(loadTimeout);
@@ -183,7 +194,7 @@ public class MainActivity extends Activity
                     TvFocusEngine.verify(web);
                     dumpDom();
                 }
-            }, 3500);
+            }, 6500);
         }
     }
 
@@ -247,12 +258,26 @@ public class MainActivity extends Activity
 
     @Override
     public void onThemeChange(String mode) {
-        BridgeLog.i("bridge", "THEME " + mode + "（阶段 3 接 TV 皮肤）");
+        BridgeLog.i("bridge", "THEME " + mode + "（TV 皮肤固定深色，不做日/夜切换）");
     }
 
+    /** 阶段 3：站点改版导致皮肤锚点失效时主动报警，而不是等用户发现「突然变丑了」。
+     *  回调来自 JavaBridge 线程，Toast 必须切回主线程。 */
     @Override
     public void onHealth(String missing, String skin, String path) {
-        BridgeLog.w("skin", "HEALTH missing=" + missing + " skin=" + skin + " path=" + path);
+        if (missing == null || missing.isEmpty()) {
+            BridgeLog.i("skin", "HEALTH_OK skin=" + skin + " path=" + path);
+            return;
+        }
+        BridgeLog.w("skin", "HEALTH_MISSING " + missing + " skin=" + skin + " path=" + path);
+        if (healthWarned) return;
+        healthWarned = true;
+        runOnUiThread(new Runnable() {
+            @Override public void run() {
+                Toast.makeText(MainActivity.this,
+                        "搜剧TV：站点版式已变化，部分样式可能失效", Toast.LENGTH_LONG).show();
+            }
+        });
     }
 
     // MARK: - 遥控器
@@ -335,7 +360,10 @@ public class MainActivity extends Activity
                 + "nodes:document.querySelectorAll('*').length,"
                 + "bridge:!!(window.H5ShellNativeBridge&&window.H5ShellNativeBridge.call),"
                 + "focusjs:!!window.__tvKey,"
-                + "atPolyfill:typeof Array.prototype.at==='function'"
+                + "atPolyfill:typeof Array.prototype.at==='function',"
+                + "skin:document.documentElement.getAttribute('data-tv-skin'),"
+                + "skinState:(function(){try{return JSON.parse("
+                + "window.__tvSkinState?window.__tvSkinState():'{}');}catch(e){return {};}})()"
                 + "});}catch(e){return JSON.stringify({error:String(e)});}})()";
         web.evaluateJavascript(js, new android.webkit.ValueCallback<String>() {
             @Override public void onReceiveValue(String value) {

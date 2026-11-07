@@ -31,11 +31,13 @@ public final class TvFocusEngine {
     }
 
     /**
-     * 一次把三层脚本注入当前文档。所有层都幂等，可被 start / progress / finish 重复调用。
-     * 可信 host 才下发桥（令牌藏在其中），不可信 host 只给焦点引擎，让遥控器还能按返回。
+     * 一次把「桥 + 焦点引擎 + TV 皮肤」注入当前文档。所有层都幂等，
+     * 可被 start / progress / finish 重复调用。
+     * 可信 host 才下发桥（令牌藏在其中），不可信 host 只给焦点引擎与皮肤，
+     * 让遥控器还能按返回、失败页也能保持大字版式。
      */
     public static void inject(WebView web, Context ctx, NativeBridge bridge,
-                              String url, String phase, boolean trusted) {
+                              String url, String phase, boolean trusted, boolean skinOn) {
         if (web == null) return;
         final String u = url == null ? "" : url;
 
@@ -52,30 +54,41 @@ public final class TvFocusEngine {
         String focus = readAsset(ctx, "focus.js");
         if (!focus.isEmpty()) web.evaluateJavascript(focus, null);
 
-        String css = readAsset(ctx, "focus.css");
-        if (!css.isEmpty()) {
-            // onPageStarted 时文档可能刚创建、document.head 还是 null。
-            // 不能直接 appendChild，否则每次启动都抛一次 Uncaught TypeError。
-            // 挂 DOMContentLoaded 兜底；finish 阶段再调用时 head 已存在，会直接成功。
-            String js = "(function(){"
-                    + "function add(){"
-                    + "  if(document.getElementById('__tvFocusCss'))return true;"
-                    + "  var host=document.head||document.documentElement;"
-                    + "  if(!host)return false;"
-                    + "  var s=document.createElement('style');s.id='__tvFocusCss';"
-                    + "  s.textContent=" + JSONObject.quote(css) + ";"
-                    + "  host.appendChild(s);return true;"
-                    + "}"
-                    + "if(!add()&&document.addEventListener){"
-                    + "  document.addEventListener('DOMContentLoaded',add,false);"
-                    + "}"
-                    + "})();";
-            web.evaluateJavascript(js, null);
+        injectCss(web, ctx, "focus.css", "__tvFocusCss");
+
+        if (skinOn) {
+            // CSS 先进 head，JS 随后打 data-tv-skin 标记并做 SPA 自同步。
+            // tv-skin.js 内部有 __tvSkinInstalled 守卫，重复注入只会触发一次 sync()。
+            injectCss(web, ctx, "tv-skin.css", "__tvSkinCss");
+            String skin = readAsset(ctx, "tv-skin.js");
+            if (!skin.isEmpty()) web.evaluateJavascript(skin, null);
         }
 
         if ("start".equals(phase) || "finish".equals(phase)) {
-            BridgeLog.i("inject", "INJECT " + phase + " trusted=" + trusted + " @ " + u);
+            BridgeLog.i("inject", "INJECT " + phase + " trusted=" + trusted
+                    + " skin=" + skinOn + " @ " + u);
         }
+    }
+
+    /** 把 assets 里的 CSS 作为 <style> 注入。documentStart 时 head 可能还是 null，
+     *  挂 DOMContentLoaded 兜底；finish 阶段再调用时 head 已存在，会直接成功。 */
+    private static void injectCss(WebView web, Context ctx, String asset, String id) {
+        String css = readAsset(ctx, asset);
+        if (css.isEmpty()) return;
+        String js = "(function(){"
+                + "function add(){"
+                + "  if(document.getElementById(" + JSONObject.quote(id) + "))return true;"
+                + "  var host=document.head||document.documentElement;"
+                + "  if(!host)return false;"
+                + "  var s=document.createElement('style');s.id=" + JSONObject.quote(id) + ";"
+                + "  s.textContent=" + JSONObject.quote(css) + ";"
+                + "  host.appendChild(s);return true;"
+                + "}"
+                + "if(!add()&&document.addEventListener){"
+                + "  document.addEventListener('DOMContentLoaded',add,false);"
+                + "}"
+                + "})();";
+        web.evaluateJavascript(js, null);
     }
 
     /** 把 Android keyCode 映射成引擎动作；返回 null 表示不接管。 */
@@ -145,12 +158,21 @@ public final class TvFocusEngine {
                 + "var st=window.getComputedStyle(p);"
                 + "var ring=st.outlineWidth+' '+st.outlineStyle+' '+st.outlineColor;"
                 + "p.parentNode.removeChild(p);"
+                + "var raw='{}';try{raw=window.__tvSkinState?window.__tvSkinState():'{}';}catch(e){}"
+                + "var sk={};try{sk=JSON.parse(raw);}catch(e2){}"
+                + "var track=document.querySelector('.home-feed-rail-track');"
+                + "var cols=0;if(track){var g=window.getComputedStyle(track).gridTemplateColumns;"
+                + " cols=g?g.split(' ').length:0;}"
                 + "return JSON.stringify({cssInjected:css,focusRing:ring,"
                 + "bridge:!!(window.H5ShellNativeBridge&&window.H5ShellNativeBridge.call),"
                 + "focusEngine:!!window.__tvKey,"
                 + "atPolyfill:typeof Array.prototype.at==='function',"
                 + "replaceAllPolyfill:typeof String.prototype.replaceAll==='function',"
-                + "randomUUID:!!(window.crypto&&crypto.randomUUID)});"
+                + "randomUUID:!!(window.crypto&&crypto.randomUUID),"
+                + "skinCss:!!document.getElementById('__tvSkinCss'),"
+                + "skinMarker:document.documentElement.getAttribute('data-tv-skin'),"
+                + "skinState:sk,gridColumns:cols,"
+                + "overflowX:document.documentElement.scrollWidth>window.innerWidth+2});"
                 + "}catch(e){return JSON.stringify({error:String(e)});}})()";
         web.evaluateJavascript(js, new ValueCallback<String>() {
             @Override public void onReceiveValue(String value) {

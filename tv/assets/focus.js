@@ -20,6 +20,11 @@
   var current = null;
   var rafPending = false;
   var pendingScroll = null;
+  /* 站点的 feed 卡片会被缓存层逐张重建。重建后 document.activeElement 回到 body，
+     旧 current 也 isConnected=false，用户会看到焦点突然弹回顶部「首页」。
+     记住上一次焦点的「身份 + 坐标」，重渲染后按身份找回等价元素。 */
+  var lastFocusKey = '';
+  var lastFocusPoint = null;
 
   /* 焦点环必须写成 inline + !important。
    * 站点按钮带 `.movie-button-secondary:focus` 这类高特异性规则，会盖掉样式表里的
@@ -58,10 +63,31 @@
     }
   }
 
+  /** 用「标签 + 可读文本」给焦点元素做身份签名。
+   *  刻意不带 className：站点会给卡片动态挂 opacity-100 / is-active 等类，
+   *  带类名会让同一个元素在重建前后对不上号。同名元素靠坐标最近来消歧。 */
+  function identity(el) {
+    if (!el) { return ''; }
+    var t = (el.getAttribute('aria-label') || el.innerText || el.value || el.title || '').trim();
+    t = t.replace(/\s+/g, ' ').slice(0, 64);
+    return el.tagName + '|' + t;
+  }
+
+  function remember(el) {
+    if (!el) { return; }
+    lastFocusKey = identity(el);
+    if (el.getBoundingClientRect) {
+      var c = center(el);
+      lastFocusPoint = { x: c.x, y: c.y };
+    }
+  }
+
   /** 站点自己 focus 过的元素也要亮起来，否则 document.activeElement 有焦点、
    *  用户却看不到任何高亮（第一次按键常出现这种情况）。 */
   function ensureMarked(el) {
-    if (!el || (el.classList && el.classList.contains(FOCUS_CLASS))) { return; }
+    if (!el) { return; }
+    remember(el);
+    if (el.classList && el.classList.contains(FOCUS_CLASS)) { return; }
     if (current && current !== el && current.classList) {
       current.classList.remove(FOCUS_CLASS);
     }
@@ -135,12 +161,53 @@
     return { x: r.left + r.width / 2, y: r.top + r.height / 2, r: r };
   }
 
-  function active() {
+  /** 按身份找回被重建的焦点元素；多个同名时取离上次坐标最近的。
+   *  候选集之外也找一遍：元素被暂时隐藏 / 滚出视口时它不会出现在 candidates() 里，
+   *  但它仍在 DOM，下一个 tick 就会恢复可见。 */
+  function refind(list) {
+    if (!lastFocusKey || !lastFocusPoint) { return null; }
+    var pool = (list || []).slice();
+    var more = document.querySelectorAll(SELECTOR);
+    for (var m = 0; m < more.length; m++) { pool.push(more[m]); }
+    var best = null, bestD = Infinity, seen = [];
+    for (var i = 0; i < pool.length; i++) {
+      var el = pool[i];
+      if (!el || seen.indexOf(el) >= 0) { continue; }
+      seen.push(el);
+      if (identity(el) !== lastFocusKey) { continue; }
+      var c = center(el);
+      var d = Math.abs(c.x - lastFocusPoint.x) + Math.abs(c.y - lastFocusPoint.y);
+      if (d < bestD) { bestD = d; best = el; }
+    }
+    return best;
+  }
+
+  /** 焦点身份彻底对不上时，落回「上次位置附近」而不是列表第一个。
+   *  列表第一个是顶部导航的「首页」，弹回去等于把用户的滚动位置清零。 */
+  function closestTo(list, p) {
+    var best = null, bestD = Infinity;
+    for (var i = 0; i < list.length; i++) {
+      var c = center(list[i]);
+      var d = Math.abs(c.x - p.x) + Math.abs(c.y - p.y);
+      if (d < bestD) { bestD = d; best = list[i]; }
+    }
+    return best;
+  }
+
+  function active(list) {
     var a = document.activeElement;
     if (a && a !== document.body && a !== document.documentElement && isVisible(a)) {
       return a;
     }
-    return current && current.isConnected && isVisible(current) ? current : null;
+    if (current && current.isConnected && isVisible(current)) { return current; }
+    var found = refind(list || candidates());
+    if (found) {
+      /* 不真正调 el.focus()：DOM 刚重建完，避免和站点的自动聚焦抢。
+         只要把焦点环画回去，方向键与 OK 键都能继续作用在这个元素上。 */
+      ensureMarked(found);
+      return found;
+    }
+    return null;
   }
 
   /**
@@ -159,6 +226,17 @@
       else if (dir === 'right') { primary =  dx; cross = Math.abs(dy); }
       else if (dir === 'up')    { primary = -dy; cross = Math.abs(dx); }
       else                      { primary =  dy; cross = Math.abs(dx); }
+
+      /* 宽幅元素用中心点算侧向偏移是错的：阶段 3 的「今晚首选」横卡宽 1200px，
+         从左侧热词按 DOWN 时中心点差 400+px，会被误判成「斜跳」而跳过整张卡。
+         只要当前坐标落在超宽元素的水平范围内，就认为它在正下方（cross=0）。 */
+      if ((dir === 'up' || dir === 'down') &&
+          t.r.width > window.innerWidth * 0.5 &&
+          c.x >= t.r.left && c.x <= t.r.right) { cross = 0; }
+      if ((dir === 'left' || dir === 'right') &&
+          t.r.height > window.innerHeight * 0.5 &&
+          c.y >= t.r.top && c.y <= t.r.bottom) { cross = 0; }
+
       if (primary <= 6) { continue; }
       // 侧向完全错开（不在同一带宽内）的候选加一笔重罚，但不清零：
       // 网格最后一列向右找下一行首项时仍要能跳过去。
@@ -210,6 +288,7 @@
     try { el.focus({ preventScroll: true }); } catch (e) { el.focus(); }
     if (el.classList) { el.classList.add(FOCUS_CLASS); }
     applyStyle(el);
+    remember(el);
     reveal(el);
   }
 
@@ -225,7 +304,7 @@
   /** 原生按键唯一入口。返回 JSON 供 evaluateJavascript 回传取证。 */
   window.__tvKey = function (action) {
     var list = candidates();
-    var from = active();
+    var from = active(list);
     if (from) { ensureMarked(from); }
     var to = null;
     var note = '';
@@ -245,10 +324,11 @@
       if (to) { setFocus(to); note = 'moved'; }
       else { note = 'edge'; }
     } else if (!from && list.length) {
-      // 第一次按方向键：懒聚焦到第一个候选，不抢站点初始化时的默认焦点
-      to = list[0];
+      // 第一次按方向键：懒聚焦到第一个候选，不抢站点初始化时的默认焦点。
+      // 若已经有过焦点，则按上次坐标就近恢复，不让焦点弹回顶部。
+      to = lastFocusPoint ? closestTo(list, lastFocusPoint) : list[0];
       setFocus(to);
-      note = 'initial';
+      note = lastFocusPoint ? 'recovered' : 'initial';
     } else if (!list.length) {
       note = 'no-candidates';
     }

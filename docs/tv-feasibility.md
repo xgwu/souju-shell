@@ -83,6 +83,47 @@
    最终改成 JS 侧写 **inline `!important`** 并在切换时还原原值。另外补了 `elementFromPoint` 最上层过滤，
    否则弹窗遮罩底下的元素仍会被当成可聚焦；以及去掉 `outline-color` 的 120ms 过渡，让焦点环即时可见。
 
+### 0.4 阶段 3 已验证通过（2026-11-07 13:23 实机）
+
+TV 版式皮肤 + 兼容层 + 锚点自检已装进电视。取证来自 `adb logcat -s SoujuTV`、
+CDP 几何量取与 `docs/tv-stage3-home.png`（App 自注入皮肤后滚回顶部的首屏）。
+
+| 验证项 | 结果 |
+|---|---|
+| 构建 / 安装 | `0.3.0`（build 3）/ 52KB APK，v1+v2+v3 通过，`adb install -r` 518–684ms |
+| **6 列网格** | `gridTemplateColumns` = 6 × `190px`，卡片 `190×287`（`padding-bottom:150%` 做 2:3），替代原 `180px×10` 横向 rail |
+| **无横向溢出** | `documentElement.scrollWidth=1280`、`overflowX:false`；所有横滑列表改成网格 / wrap |
+| **字号** | 搜索输入 26px、顶部导航 26px、热词 19px、卡片标题 20px、section 标题 26px（原 11–16px） |
+| **今晚首选** | 由首张 feed 卡数据生成的 1200×148 宽幅卡，焦点可达、点击走站内链接 |
+| **深色层** | 重映射站点 `--movie-*` 令牌为 iOS souju-dark 同套色值 |
+| **锚点自检** | `HEALTH_OK checked=13 columns=6 overflowX=false missing=''`，站点改版会主动告警 |
+| **VERIFY** | `skinCss:true / skinMarker:on / skinState.missing:[] / gridColumns:6`，3 个 polyfill 仍全绿 |
+| **焦点连续性** | 连续 8 次 DOWN 全部 `moved`（首页→搜索→今晚首选→第 2/3/4/5 行海报），零 `initial` |
+| 稳定性 | 无 JS 错误、无崩溃；`DOM` 979 节点 / 40–42 图 / 62 链接 / 46 按钮 |
+
+**四条推翻或细化了 §6 初版设计的实测结论**：
+
+1. **左侧竖导航改成了「隐藏侧栏 + 满宽顶部导航」**。CDP 量取发现站点那个 272px 侧栏
+   不是主导航，而是用户信息抽屉（头像 / 成长值 / 扫码 / 分享 / 通知 / 登录）。把它收窄并放大到
+   20px 后内容换行重叠、被裁切，占 272px 却只提供电视上用不到的功能。真正的主导航是
+   `.app-primary-nav-desktop`（首页/短剧/历史/片单），改成满宽顶栏后内容区 1200px，
+   6 列每张正好 190 CSS px —— 与 §6 初版数值一致，但路径完全不同。
+2. **站点用 `--movie-sidebar-width` 变量 + `!important` 决定主内容 padding**。
+   只写 `padding-left:40px!important` 会被反压回 288px；实测在 `html` 上写
+   `style.setProperty('--movie-sidebar-width','40px','important')` 才稳。
+3. **首屏排序比压缩尺寸更有效**。「本周追剧」日历（7 个日期 + 4 组剧集小卡）放大后会占 528px，
+   把海报推到 y≈1100。用 flex `order` 把日历挪到海报墙之后、`继续下滑` 提示挪到最后
+   （不能 `display:none`，站点靠它触发无限滚动），首屏第一行海报从 y=538 开始。
+4. **宽幅卡的焦点要用「覆盖区间」而不是中心点**。1.2k 宽的今晚首选卡中心 x=640，
+   从左侧热词按 DOWN 时按中心点算侧向偏移 400+px，会被轴向加权判成斜跳而整张卡跳过。
+   焦点引擎补了「当前坐标落在超宽元素水平范围内时 cross=0」的特例。
+
+**阶段 3 顺带修掉两个焦点隐患**（都是实机按键轨迹暴露的）：
+`tv-skin.js` 的 `tonight()` 第一版每次同步都移除重建横幅，MutationObserver 被自己的 DOM 改动
+触发，形成 220ms 死循环（候选数 75/76 跳动、焦点每按两下弹回顶部）→ 改成按数据签名幂等；
+焦点引擎补了 `refind()`（站点重建 feed 卡后按「标签+可读文本+坐标」找回等价元素）与
+`recovered` 分支（彻底失联时落在上次位置附近，而不是列表第一个「首页」）。
+
 ---
 
 ## 1. 目标设备事实（ADB 实测，非规格页推断）
@@ -182,22 +223,24 @@ HTTP 200   4021 bytes   0.79s
 
 ```
 雷鸟电视 · Android 11 · MT9653 · WebView 83
-└── SoujuTv (Java, 单 Activity)                       ← 阶段 1+2 已实现
-    ├── MainActivity          宿主、按键路由、全屏、failover 编排
+└── SoujuTv (Java, 单 Activity)                       ← 阶段 1~3 已实现
+    ├── MainActivity          宿主、按键路由、全屏、failover、皮肤开关与告警
     ├── TvWebViewClient       导航边界、注入挂钩、失败上报
     ├── TvChromeClient        全屏回调、控制台、进度兜底
-    ├── NativeBridge          RPC 路由 + 会话令牌 + 能力上报
-    ├── TvFocusEngine         注入器 + 按键映射 + 自检
+    ├── NativeBridge          RPC 路由 + 会话令牌 + 能力上报 + 健康回包
+    ├── TvFocusEngine         注入器 + 按键映射 + 焦点找回 + VERIFY 自检
     ├── ShellConfig           线路、可信 host、UA
     ├── BridgeLog             logcat + 落盘双写
-    └── WebView               React SPA + bridge.js / focus.js / focus.css
-                                     ↓ 阶段 3+
-    ├── TvSkin                TV 版式 CSS（1280×720 重排）
+    └── WebView               React SPA
+        ├── bridge.js          RPC 桥 + 环境标记 + 3 个 polyfill
+        ├── focus.js/css       候选集 / 轴向最近邻 / refind / inline 焦点环
+        └── tv-skin.css/js     1200px 全宽版式 / 6 列网格 / 今晚首选 / 锚点自检  ← 阶段 3
+                                     ↓ 阶段 4+
     ├── LocalInputServer      手机扫码输入（局域网 HTTP）
     └── PlayerActivity        media3 / ExoPlayer
 ```
 
-### 模块清单（阶段 1+2 已落地，其余为待做）
+### 模块清单（阶段 1~3 已落地，其余为待做）
 
 | 文件 | 职责 | 状态 |
 |---|---|---|
@@ -208,8 +251,9 @@ HTTP 200   4021 bytes   0.79s
 | `TvFocusEngine.java` | assets 注入器、按键映射、`VERIFY` 自检 | ✅ 已实现 |
 | `ShellConfig.java` / `BridgeLog.java` | 线路 / 可信 host / UA / 日志双写 | ✅ 已实现 |
 | `assets/bridge.js` | RPC 桥 + Android 环境标记 + 3 个 polyfill | ✅ 已实现 |
-| `assets/focus.js` + `focus.css` | 候选集、轴向最近邻、滚动、inline 焦点环 | ✅ 已实现 |
-| `TvSkin` | TV 版式 CSS（1280×720 重排）+ 深色层 | ⏳ 阶段 3 |
+| `assets/focus.js` + `focus.css` | 候选集、轴向最近邻、宽元素特例、`refind`、inline 焦点环 | ✅ 已实现 |
+| `assets/tv-skin.css` | 1200px 全宽版式、6 列网格、24px 级字号、深色令牌层 | ✅ 阶段 3 |
+| `assets/tv-skin.js` | `data-*` 标记、首屏排序、今晚首选卡、锚点自检 + `reportHealth` | ✅ 阶段 3 |
 | `LocalInputServer` | 二维码 + 输入回传 | ⏳ 阶段 4 |
 | `PlayerActivity` | ExoPlayer + 遥控器播放条 | ⏳ 阶段 5 |
 
@@ -395,7 +439,8 @@ WebViewClient.shouldInterceptRequest
 **定位变化**：原先按静态扫描判断「首页可能因 `Array.at` 报错」，把它列为启动前置项。
 11:10 实机裸跑（§0.2）证明首页完整渲染、logcat 无 `TypeError`，所以它**不再是路线 A 的前置条件**。
 但懒加载分片里那 6 处 `.at(` 和 1 处 `.replaceAll(` 是真实调用，进入对应页面时仍可能抛错；
-TV 皮肤也必须避开 Chrome 83 不支持的 CSS。因此这层保留，只是并入阶段 3 一起做，不再单列一个里程碑。
+TV 皮肤也必须避开 Chrome 83 不支持的 CSS。**这层已于阶段 3 落地**：3 个 polyfill 在
+`bridge.js`（`VERIFY` 实测全生效），版式皮肤按下面的 83 基线写，不单列里程碑。
 
 在 `documentStart` 注入，先于站点任何脚本执行。两件事：
 
@@ -462,14 +507,22 @@ adb shell cmd webviewupdate set-webview-implementation com.google.android.webvie
 
 现有 iOS 皮肤是手机竖屏的版式（底部 tab、单列卡片）。电视要重做，但**结构复用**——还是按 BEM 类名重排，套路一样。
 
-| 项 | iOS（竖屏） | TV（**1280×720 CSS px @ dpr 1.5**） |
-|---|---|---|
-| 导航 | 底部 tab | 顶部横向，或左侧竖栏（推荐左侧，横向滚动更省） |
-| 海报网格 | 2–3 列 | **6 列**（每张约 185 CSS px ≈ 278 物理 px，间距 12 CSS px） |
-| 今晚首选卡 | 1.42:1 竖版 | 16:9 横幅，约 1140×270 CSS px |
-| 最小字号 | 13px | **24 CSS px**（≈36 物理 px，2.5m 观看距离可读） |
-| 焦点态 | 无 | 2px 描边 + 1.06 缩放，用 `:focus` 而非 `:focus-visible` |
-| 默认皮肤 | 深色 | 深色（电视环境光暗，不做浅色也无妨） |
+| 项 | iOS（竖屏） | TV 初版设想 | **阶段 3 实机落地** |
+|---|---|---|---|
+| 导航 | 底部 tab | 顶部横向或左侧竖栏（推荐左侧） | **满宽顶部导航**（1200×58，26px）；站点 272px 左侧栏实测是用户信息抽屉，隐藏 |
+| 海报网格 | 2–3 列 | 6 列，每张约 185 CSS px | **6 列 `190px`、卡片 `190×287`**；`padding-bottom:150%` 替代 `aspect-ratio` |
+| 今晚首选卡 | 1.42:1 竖版 | 16:9 横幅，约 1140×270 | **1200×148 宽幅卡**（8:1）；数据取自首张 feed 卡，无额外请求 |
+| 最小字号 | 13px | 24 CSS px | **主交互 26px**（输入 / 导航 / 标题），热词 19px、卡片标题 20px、徽章 16px |
+| 焦点态 | 无 | 2px 描边 + 1.06 缩放 | inline `!important` 3px 橙环 + 海报 `scale(1.04)`；宽幅卡有方向导航特例 |
+| 默认皮肤 | 深色 | 深色 | 深色，重映射 `--movie-*` 令牌与 iOS souju-dark 对齐 |
+
+**字号为什么没有一刀切 24px**：190px 宽的海报卡放 24px 中文一行只有 7 个字，
+「Doctor X:白色黑手党时代」会被截得没人看得懂。阶段 3 按信息层级分档：
+主交互（要读、要点）26px，卡片标题 20px，徽章 / 元信息 16–18px，并统一用
+`white-space:nowrap + text-overflow:ellipsis` 兜底。实测在 2.5m 距离全部可读。
+
+**左侧竖栏的设想被实机推翻**：见 §0.4 第 1 条。代价是 TV 端暂不提供扫码 / 分享 /
+账号登录入口，阶段 4 做手机输入时一并补。
 
 **数值为什么变了**：`wm size 1920×1080` 是物理像素，`wm density 240` 意味着 1 CSS px = 1.5 物理 px，实测 `innerWidth=1280 / innerHeight=720 / dpr=1.5`。所以坐标系是 1280×720，之前写的 1920×1080 是物理值，用来排版会做出偏小一半的界面。
 
@@ -489,12 +542,12 @@ adb shell cmd webviewupdate set-webview-implementation com.google.android.webvie
 | ~~0.5~~ | 兼容层（polyfill + Chrome 83 CSS 基线） | 0.25 天 | 已并入阶段 3；裸跑证明不阻断启动 |
 | 1 | WebView 壳 + 桥 + 线路 failover | 2 天 | ✅ **已完成**，见 §0.3：站点调用 `getCapabilities`、令牌隔离、failover 全通过 |
 | 2 | **遥控器焦点引擎** | 2–3 天 | ✅ **已完成**，见 §0.3：83 个候选、无斜跳、橙色焦点环实机截图可见 |
-| 3 | TV 版式皮肤（1280×720 坐标系）+ 兼容层 | 2–3 天 | 无横向滚动条，字能看清，避开 5 个失效 CSS 特性 |
+| **3** | TV 版式皮肤（1280×720 坐标系）+ 兼容层 + 锚点自检 | 2–3 天 | ✅ **已完成**，见 §0.4：6 列 190px 网格、无横向溢出、26px 主字号、避开 5 个失效 CSS 特性、焦点连续 |
 | 4 | 手机扫码输入 | 1 天 | 手机输入后 TV 200ms 内出结果 |
 | 5 | ExoPlayer 播放 | 2–3 天 | 1080p 硬解，遥控器可控播放条 |
 
-阶段 0/1/2 已完成，**剩余约 4–7 个工作日**（阶段 3+4+5），业余节奏 1–2 周。
-工程骨架、构建脚本、自签名证书、桥与焦点引擎都已落地，阶段 3 只需写 CSS 与锚点自检。
+阶段 0/1/2/3 已完成，**剩余约 3–4 个工作日**（阶段 4+5），业余节奏 3–5 天。
+「能装、能显示、遥控器能走、沙发上能看清」四件事都有实机证据了，剩下的是**输入与播放**。
 
 ---
 
@@ -510,7 +563,9 @@ adb shell cmd webviewupdate set-webview-implementation com.google.android.webvie
 | WebView 能力边界 | ✅ `tools/tv-webview-probe.py` → `docs/tv-webview-capabilities.json` |
 | **JDK 17** | ✅ Temurin `17.0.21+9`，`~/Library/Android/jdk17/home`（清华 Adoptium 镜像） |
 | **Android SDK** | ✅ cmdline-tools 12.0 / platform-34 / build-tools 34.0.0（dl.google.com 直连） |
-| **构建脚本** | ✅ `tools/build-tv-apk.sh`：aapt2 → javac → d8 → zipalign → apksigner，产物 20KB |
+| **构建脚本** | ✅ `tools/build-tv-apk.sh`：aapt2 → javac → d8 → zipalign → apksigner，阶段 3 产物 52KB |
+| **实机 CSS 试跑** | ✅ `tools/tv-skin-preview.py`：CDP 注入本地皮肤 + 截图 + 几何报告，不用重装 |
+| **实机 JS 量取** | ✅ `tools/tv-cdp.py`：纯标准库 WebSocket 客户端（Chrome 83 只回整数 id，见注释） |
 | **签名证书** | ✅ `~/.souju-tv/tv.jks`，30 年有效；v1/v2/v3 全通过，覆盖安装签名不变 |
 | **安装链路** | ✅ `adb install -r` → `Success`；两个 verifier 开关为 `null` 并未拦截 |
 | **桌面可见** | ✅ 「我的应用」列表共 10 项，搜剧TV 排第一位 |
@@ -540,8 +595,10 @@ dscacheutil -q host -a name Android.local  # → 192.168.0.4
 python3 tools/tv-webview-probe.py --save /tmp/probe.json
 ```
 
-下一步是**阶段 3**：TV 版式皮肤（1280×720 坐标系、左侧竖导航、6 列网格、24 CSS px 字号下限）
-+ 兼容层接入 + 皮肤锚点自检。`tv/README.md` 有完整的构建、调试参数、按键表与日志前缀说明。
+下一步是**阶段 4**：手机扫码输入（局域网 HTTP 服务 + 二维码 + 输入回传），顺带补回
+TV 端账号登录 / 扫码入口。改皮肤不用重装：`python3 tools/tv-skin-preview.py` 会把本地
+`tv-skin.css/js` 通过 CDP 注入正在运行的 WebView 并截图；`tools/tv-cdp.py` 是通用的
+实机 JS 执行 / 几何量取工具。完整调试参数、按键表与日志前缀见 `tv/README.md`。
 
 ---
 
@@ -549,10 +606,10 @@ python3 tools/tv-webview-probe.py --save /tmp/probe.json
 
 | 风险 | 概率 | 影响 | 缓解 |
 |---|---|---|---|
-| **Chromium 83 缺运行时 API / CSS 特性** | **能力缺失已确认，首页未受影响** | 懒加载页可能报错、站点 CSS 版式塌陷 | §5.5 兼容层（0.25 天）+ TV 皮肤显式覆盖；裸跑首页已通过 |
+| **Chromium 83 缺运行时 API / CSS 特性** | **能力缺失已确认，首页未受影响** | 懒加载页可能报错、站点 CSS 版式塌陷 | ✅ 阶段 3 已落地：3 个 polyfill + 皮肤避开 5 个失效特性 + 关键容器显式覆盖 |
 | **站点未来改版用上 Chrome 85+ 语法** | 中 | 解析级白屏，polyfill 补不了 | §5.6 升级系统 WebView；或保留远程注入 CSS/JS 通道做应急 |
 | ~~遥控器焦点手感差，做不出"顺"~~ | **已排除** | — | 阶段 2 实机通过：轴向加权消掉斜跳、inline 焦点环清晰、模态约束生效 |
-| 站点域名轮换导致线路失效 | 高（已知） | App 打不开 | 两条内置线路 + MENU 手动切换 + `--es trusted` 临时补域；阶段 3 加远程配置下发 |
+| 站点域名轮换导致线路失效 | 高（已知） | App 打不开 | 两条内置线路 + MENU 手动切换 + `--es trusted` 临时补域；阶段 3 另给了 `--es tvskin off` A/B 开关与 CDP 热注入通道，**远程配置下发推迟到阶段 4**（与手机输入服务合并） |
 | ~~桥被任意页面调用~~ | **已排除** | — | 令牌隔离实测 3 种伪造调用全 REJECT；`security-probe.html` 可重跑 |
 | ~~`adb install` 被安装校验拦截~~ | **已排除**（实测 `Success`） | — | 两条 `settings put global` 与 U 盘兜底留作备用 |
 | 32 位 ABI 导致某个依赖装不上 | 中（空壳已验证通过） | 编译/运行时失败 | 空壳不含 `.so`，天然兼容；将来引入 ExoPlayer 时核对 `.so` 架构 |
@@ -565,13 +622,14 @@ python3 tools/tv-webview-probe.py --save /tmp/probe.json
 
 ## 10. 一句话建议
 
-阶段 0/1/2 已完成，接下来做 **阶段 3：TV 版式皮肤 + 兼容层 + 锚点自检**（约 2–3 天）。
+阶段 0/1/2/3 已完成，接下来做 **阶段 4：手机扫码输入**（约 1 天），然后阶段 5 ExoPlayer。
 
-「能装、能显示、遥控器能走」已用实机证明，剩下的最大问题是**可用性**：
-12:00 的实机截图里，页面仍是桌面窄栏 —— 左侧栏约 200 CSS px、海报和文字对 2.5m 观看距离过小。
-这不是美化，是不做就没法在沙发上用。
+「能装、能显示、遥控器能走、沙发上能看清」四件事都有实机证据了，
+`docs/tv-stage3-home.png` 是 App 自注入皮肤后的首屏。剩下的最大问题是**打字**：
+电视没有键盘、语音键被系统助手占用，搜索框现在只靠热词和焦点可用，用户输不了片名。
 
-阶段 3 顺带把 `shell.reportHealth` 锚点自检接上（协议位已在桥里留好），
-这样站点改版导致选择器失效时会主动报警，而不是等用户发现「突然变丑了」。
+阶段 3 已把 `shell.reportHealth` 锚点自检接上，站点改版导致选择器失效时会主动报警，
+而不是等用户发现「突然变丑了」；启动期的假警报用 6 秒宽限 + 连续两次一致签名压掉了。
 
-系统 WebView 已决定不动（§5.6），没有待拍板事项。
+系统 WebView 已决定不动（§5.6），没有待拍板事项。阶段 4 唯一需要确认的是
+「手机输入页走局域网 HTTP 还是 WebSocket」——建议 HTTP 轮询起步，延迟目标 < 200ms。

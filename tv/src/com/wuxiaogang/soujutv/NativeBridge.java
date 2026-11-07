@@ -143,17 +143,22 @@ public final class NativeBridge {
 
                 case "shell.setTheme":
                 case "shell.toggleTheme": {
-                    // 阶段 3 才会做 TV 皮肤；现在固定深色，但保留协议位，别让站点报错。
-                    BridgeLog.i("bridge", "THEME_REQUEST " + p.optString("mode", "toggle") + "（TV 暂固定 dark）");
+                    // 阶段 3 的 TV 皮肤固定深色：电视环境光暗，不提供日/夜切换。
+                    // 保留协议位并如实回 dark，别让站点的 toggle 逻辑陷入等待。
+                    BridgeLog.i("bridge", "THEME_REQUEST " + p.optString("mode", "toggle") + "（TV 固定 dark）");
                     host.onThemeChange(p.optString("mode", "dark"));
                     reply(oid, ok().put("mode", "dark").put("skin", "souju-dark"));
                     return;
                 }
 
                 case "shell.reportHealth":
+                    // 阶段 3：tv-skin.js 在每次 SPA 同步后上报锚点自检与版式指标。
                     String missing = p.optString("missing", "");
                     host.onHealth(missing, p.optString("skin", ""), p.optString("path", ""));
-                    BridgeLog.i("bridge", "HEALTH missing=" + missing + " @ " + p.optString("path", ""));
+                    BridgeLog.i("bridge", "HEALTH checked=" + p.optInt("checked", 0)
+                            + " columns=" + p.optInt("columns", 0)
+                            + " overflowX=" + p.optBoolean("overflowX", false)
+                            + " missing=" + missing + " @ " + p.optString("path", ""));
                     reply(oid, ok());
                     return;
 
