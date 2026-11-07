@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.wuxiaogang.soujutv"
-    android:versionCode="2"
-    android:versionName="0.2.0">
+    android:versionCode="5"
+    android:versionName="0.5.0">
 
     <!-- 电视是 Android 11 / API 30，用户态 armeabi-v7a（32 位）。
          本 APK 不含任何 .so，因此没有 ABI 约束，天然可在 32 位设备安装。 -->
@@ -25,6 +25,7 @@
             android:name=".MainActivity"
             android:exported="true"
             android:launchMode="singleTask"
+            android:windowSoftInputMode="stateAlwaysHidden|adjustNothing"
             android:configChanges="orientation|screenSize|keyboardHidden">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -32,5 +33,12 @@
                 <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- 阶段 5：独立原生播放器。单独 Activity，按键不经过 WebView。 -->
+        <activity
+            android:name=".PlayerActivity"
+            android:exported="false"
+            android:theme="@android:style/Theme.NoTitleBar.Fullscreen"
+            android:configChanges="orientation|screenSize|keyboardHidden" />
     </application>
 </manifest>

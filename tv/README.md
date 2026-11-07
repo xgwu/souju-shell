@@ -1,8 +1,8 @@
-# 搜剧 AI 电视版 · 阶段 1~3 工程
+# 搜剧 AI 电视版 · 阶段 1~5 工程
 
-**当前状态**：`0.3.0` / build 3 —— 正式 WebView 壳 + 遥控器焦点引擎 + **TV 版式皮肤**，
-已装进雷鸟鹤7 Pro 75R675C 实机验证。自签名证书 30 年有效，装一次永久可用，
-没有 iOS 版那套 7 天续签。
+**当前状态**：`0.5.0` / build 5 —— WebView 壳 + 遥控器焦点引擎 + TV 版式皮肤 +
+**手机扫码输入** + **原生播放器**，已装进雷鸟鹤7 Pro 75R675C 实机验证。
+自签名证书 30 年有效，装一次永久可用，没有 iOS 版那套 7 天续签。
 
 首屏实机截图：`docs/tv-stage3-home.png`。完整方案与实测数据：
 `docs/tv-feasibility.md`、`docs/tv-webview-capabilities.json`。
@@ -14,32 +14,39 @@ tv/
 ├── AndroidManifest.xml                  minSdk 21 / targetSdk 30 / 双 LAUNCHER category
 ├── res/values/strings.xml               app_name = 搜剧TV
 ├── res/mipmap-mdpi/ic_launcher.png      192×192，由 tools/make-tv-icon.py 生成
+├── libs/zxing-core-3.5.3.jar            只用 QRCodeWriter 生成二维码（Maven Central）
 ├── assets/
-│   ├── bridge.js                        documentStart 注入：RPC 桥 + 环境标记 + 3 个 polyfill
-│   ├── focus.js                         焦点引擎：候选集 / 轴向最近邻 / refind / 宽元素特例 / 高亮
+│   ├── bridge.js                        documentStart 注入：RPC 桥 + 环境标记 + polyfill（含 replaceChildren）
+│   ├── focus.js                         焦点引擎：候选集 / 轴向最近邻 / refind / 宽元素特例 / 浮层焦点域
 │   ├── focus.css                        焦点环样式（Chrome 83 基线）
-│   ├── tv-skin.css                      TV 版式：1200px 全宽 / 6 列网格 / 深色令牌 / 今晚首选
-│   └── tv-skin.js                       data-* 标记 / 首屏排序 / 今晚首选卡 / 锚点自检
+│   ├── tv-skin.css                      TV 版式：1200px 全宽 / 6 列网格 / 深色令牌 / 今晚首选 / 搜索浮层
+│   ├── tv-skin.js                       data-* 标记 / 首屏排序 / 今晚首选卡 / 锚点自检
+│   ├── tv-overlay.js                    顶部工具栏（搜索/扫码/原生播放）+ 搜索浮层 + 手机输入回传 + 媒体嗅探
+│   ├── input-page.html                  手机扫码后的局域网输入页（由 LocalInputServer 提供）
 │   ├── error.html                       两条线路全挂时的错误页
 │   ├── probe.html                       阶段 0 能力探针（保留）
 │   └── security-probe.html              桥令牌隔离验证页
 ├── src/com/wuxiaogang/soujutv/
 │   ├── MainActivity.java                宿主、按键路由、全屏、failover 编排
 │   ├── ShellConfig.java                 线路、可信 host、UA、常量
-│   ├── NativeBridge.java                RPC 路由 + 令牌校验 + 能力上报
+│   ├── NativeBridge.java                RPC 路由 + 令牌校验 + 能力上报 + playNative/setOverlay
 │   ├── TvWebViewClient.java             导航边界、注入挂钩、失败上报
 │   ├── TvChromeClient.java              全屏回调、控制台、进度兜底
-│   ├── TvFocusEngine.java               注入器 + 按键映射 + 皮肤注入 + VERIFY 自检
+│   ├── TvFocusEngine.java               注入器 + 按键映射 + 皮肤/浮层注入 + VERIFY 自检
+│   ├── QrGen.java                       ZXing 生成 WiFi 配网二维码 PNG（data URL）
+│   ├── LocalInputServer.java            8088 端口局域网 HTTP：配对码隔离 + /api/send 回传
+│   ├── PlayerActivity.java              系统 MediaPlayer + SurfaceView 原生播放器
 │   └── BridgeLog.java                   logcat + 落盘双写
 └── build/                               构建产物（gitignore）
 ```
 
 开发期工具（都在 `tools/`）：`tv-skin-preview.py` 通过 CDP 把本地皮肤注入
 正在运行的 WebView 并截图，**改 CSS 不用重装**；`tv-cdp.py` 是通用的实机 JS 执行 /
-几何量取工具（纯标准库 WebSocket 客户端，Chrome 83 只回整数 id）。
+几何量取工具（纯标准库 WebSocket 客户端，Chrome 83 只回整数 id，`--await` 可等 Promise）。
 
-**仍然不用 Gradle**：7 个 Java 类、零第三方依赖，`aapt2 → javac → d8 → zipalign → apksigner`
-两秒出 52KB APK，改一行立刻装机实测。等阶段 5 引入 media3 / ExoPlayer 再切 Gradle。
+**仍然不用 Gradle**：10 个 Java 类 + 一个 zxing jar，`aapt2 → javac → d8 → zipalign → apksigner`
+两秒出 336KB APK，改一行立刻装机实测。播放器实测系统 `MediaPlayer` 足够
+（直链 mp4 / Range 拉流），ExoPlayer/media3 的收益只剩 DASH/DRM，不值得引入。
 
 ## 构建与安装
 
@@ -64,9 +71,12 @@ adb install -r tv/build/souju-tv-debug.apk # 覆盖安装，签名不变、数�
 | 键 | 行为 |
 |---|---|
 | 上 / 下 / 左 / 右 | 焦点引擎按轴向最近邻移动，橙色焦点环跟随 |
-| OK / Enter | `click()` 当前焦点；输入框上按下暂不操作（等阶段 4 手机扫码输入） |
-| 返回 | 优先回退到站内历史；没有站内历史时，2 秒内连按两次退出 |
-| 菜单 | 切到下一条线路并重载（也是人工 failover 入口） |
+| OK / Enter | `click()` 当前焦点；搜索输入框里按下 = 提交搜索 |
+| 返回 | 浮层打开 → 关浮层、焦点还给来源图标；否则回退站内历史；无站内历史时 2 秒内两次退出 |
+| 菜单 | WebView 内切线路；原生播放器里显示/隐藏控制条 |
+
+**原生播放器内**：OK 播放/暂停、左/右 ±10s、上/下 音量、菜单 显隐控制条、返回 退出。
+播放期间 `FLAG_KEEP_SCREEN_ON`，不会进屏保（实测无此 flag 时 8 分钟即被 Dreaming 暂停）。
 
 全屏视频（`onShowCustomView`）期间**按键完整交回系统**，不注入焦点引擎，避免和播放条抢事件。
 
@@ -174,22 +184,62 @@ adb pull /storage/emulated/0/Android/data/com.wuxiaogang.soujutv/files/bridge.lo
 padding（必须在 `html` 上写 inline `!important` 覆盖）；`tonight()` 不幂等会被自己的
 MutationObserver 触发成 220ms 死循环；1.2k 宽卡按中心点算侧向偏移会被焦点引擎跳过。
 
-## 已知限制（阶段 4+ 解决）
+### 阶段 4+5 追加验证（2026-11-07 14:35，鹤7 Pro 75R675C）
 
-1. **搜索框无法输入**：电视没有键盘，语音键被系统助手占用。阶段 4 接手机扫码输入。
-2. **H5 播放器控件为触摸设计**：遥控器点不到进度条；阶段 5 上 ExoPlayer。
-3. **TV 端暂无账号登录 / 扫码 / 分享入口**：阶段 3 隐藏了站点的用户信息侧栏
-   （272px 抽屉放大后会换行重叠、且这些功能在电视上用不到），阶段 4 与手机输入页一并补。
-4. `auth.getState` / `auth.restoreSession` 回 `NOT_IMPL` 是**刻意的**：站点靠 `capabilities.actions`
+| 项 | 结果 |
+|---|---|
+| 构建 / 安装 | `0.5.0` / 336KB（含 zxing），v1+v2+v3 通过 |
+| **焦点环残留** | 遍历 12 键后全页 `data-tv-ring` = 1（只有当前焦点），站点自身的橙色 `:focus` 被覆盖 |
+| **海报获焦** | 获焦后图片 196×296 完整可见（修掉 `scale` + 站点 `overflow:hidden` 联动裁切） |
+| **热词行** | 首页「热门影片 / 推荐输入」两行 chips 隐藏，首屏让给海报墙 |
+| **搜索图标 + 浮层** | 常驻大搜索框隐藏；右上角搜索图标 → OK 开自建浮层（默认聚焦输入框）→ BACK 关浮层焦点还给图标 |
+| **手机扫码输入** | 二维码渲染正常；`/api/send?k=6688` → 电视 100ms 收到 `tv.remoteInput`；无/错配对码 403 |
+| **媒体直链发现** | `video.duration>0` 即可信：识破 `.jpg` 伪装的 532MB mp4 直链（`ftyp isom`） |
+| **原生播放** | H5 20:46 续播 → 1s `PLAYING duration=2890120`；OK/±10s/音量/MENU/BACK 全部生效；错误流正确报 `MEDIA_ERROR` |
+| **屏保修复** | 播放器加 `FLAG_KEEP_SCREEN_ON`；onPause 停 500ms 进度轮询，onResume 恢复 |
+
+## 已知限制
+
+1. `auth.getState` / `auth.restoreSession` 回 `NOT_IMPL` 是**刻意的**：站点靠 `capabilities.actions`
    里有没有 `auth.*` 判断原生登录态同步是否支持，不报即回退 web 登录态。
-5. 远程配置下发尚未实现；阶段 3 提供 `--es tvskin off` A/B 开关与 CDP 热注入通道兜底，
-   正式下发推迟到阶段 4 与手机输入服务合并。
+2. 远程配置下发未实现；有 `--es domains/trusted/tvskin` 与 CDP 热注入通道兜底。
+3. adb 截屏拍不到原生播放器的视频层（MTK overlay 限制），画面取证依赖日志与音频状态。
+4. BACK 退出播放器后 WebView 焦点在 body，需按一次方向键重新聚焦（可用性小项）。
+5. Chrome 83 五个失效 CSS 特性（flex `gap` / `aspect-ratio` / `:has` / `:focus-visible` /
+   `inset`）已全部避开，后续改皮肤要守住这条基线。
 
 ## 下一步
 
-阶段 4：手机扫码输入（局域网 HTTP 服务 + 二维码 + 输入回传，延迟目标 < 200ms），
-顺带补回账号登录 / 扫码入口。然后阶段 5：ExoPlayer 播放条（左右快退快进 10s、OK 暂停、
-返回退出、上下选集）。
+核心闭环（看片 + 搜索 + 播放）已全部可用。可选增强：选集/剧集列表的原生 UI、
+播放器记忆播放位置到站点历史、账号登录入口、远程线路配置下发。
 
-阶段 3 的 Chrome 83 五个失效 CSS 特性（flex `gap` / `aspect-ratio` / `:has` /
-`:focus-visible` / `inset`）已全部避开，后续改皮肤也要守住这条基线。
+## 手机扫码输入（阶段 4）
+
+启动 App 时 `LocalInputServer` 监听 `0.0.0.0:8088`，生成 4 位配对码并画成二维码。
+点顶部工具栏的扫码图标（或搜索浮层里的「手机输入」）看到二维码，手机同一 WiFi 扫码打开
+`http://<TV IP>:8088/?k=<配对码>`，输入文字点发送 → 电视 100ms 内收到、自动填入搜索框提交。
+
+- **配对码隔离**：`/api/state`、`/api/send` 都必须带正确的 `k`，实测无 `k` / 错 `k` 一律 403；
+- **回传链路**：`LocalInputServer` → `MainActivity`（main handler）→ `emit tv.remoteInput`
+  → `tv-overlay.js` 用 React 受控组件的原型 setter 写值（直接赋值不触发站点 state）；
+- 电视静膜/息屏不影响服务；App 被杀即停，无后台驻留。
+
+## 原生播放器（阶段 5）
+
+播放页顶部工具栏出现「原生播放」按钮（媒体直链就绪时自动显示），点击后：
+
+1. `tv-overlay.js` 把 `video.currentSrc`（哪怕扩展名是 .jpg，见下）+ 当前进度交给
+   `playback.playNative`；
+2. `PlayerActivity` 用系统 `MediaPlayer` + `SurfaceView` 起播（带站点 UA/Referer 头），
+   `seekTo` 到 H5 播放进度续播；
+3. 遥控器全部接管（见按键表），BACK 回 WebView。
+
+**关键实测发现（2026-11-07）**：站点把整部 mp4 存在 `.jpg` 路径下伪装 ——
+CDN 回包 `content-type: image/jpeg` 但字节是 `ftyp isom/avc1`（532MB、支持 Range），
+`video.currentSrc` 长得像封面图却在正常播放。所以媒体直链的判据是
+**`video.duration > 0` 即可信**，绝不能按扩展名过滤（会误杀真直链、放过占位图）。
+fetch/XHR 嗅探只作为 hls.js/MSE 场景的兜底。
+
+已验证：H5 进度 20:46 续播、1 秒 prepared、48:10 时长、OK/±10s/音量/菜单/BACK 全部生效、
+错误流（网络不可达）正确弹 `MEDIA_ERROR` 文案。屏幕本体画面正常；**adb 截屏视频层是黑的**
+（MTK 对硬件 overlay 层的截屏限制），取证看 `player:` 日志与音频 `state:started`。

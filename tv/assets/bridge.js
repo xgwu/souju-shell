@@ -118,5 +118,30 @@
     };
   }
 
+  /* Chrome 86 才有 ParentNode.replaceChildren（Chrome 83 没有）。
+   * 站点的 React Router hydrate 在 /player/:id 路由上直接调它，缺了会抛
+   * "re.replaceChildren is not a function"，播放页整页退化成「页面加载失败」。
+   * 阶段 5 的实机探测就是被这个挡住的：补齐后播放页 1879 节点、<video src> 正常出现。
+   * 必须挂在三个原型上：React 会对 div、document 和 fragment 分别调用。 */
+  if (window.Element || window.Document || window.DocumentFragment) {
+    var replaceChildren = function () {
+      var nodes = arguments;
+      while (this.firstChild) { this.removeChild(this.firstChild); }
+      for (var i = 0; i < nodes.length; i++) {
+        var n = nodes[i];
+        if (n === null || n === undefined) { continue; }
+        this.appendChild(typeof n === 'string' ? document.createTextNode(n) : n);
+      }
+    };
+    var protos = [window.Element && Element.prototype,
+                  window.Document && Document.prototype,
+                  window.DocumentFragment && DocumentFragment.prototype];
+    for (var pi = 0; pi < protos.length; pi++) {
+      if (protos[pi] && !protos[pi].replaceChildren) {
+        protos[pi].replaceChildren = replaceChildren;
+      }
+    }
+  }
+
   window.__soujuTvBridgeReady = true;
 })();

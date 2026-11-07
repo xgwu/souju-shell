@@ -32,12 +32,17 @@
      详情页 / 播放器本来就没有 composer、feed rail，不能算 missing。
      刻意不放 .home-feed-card-title：feed 卡片会被站点缓存层逐张重建，
      标题会短暂消失，实测启动 8 秒时误报过一次「改版」告警。 */
+  /* .app-primary-nav-desktop 只存在于首页壳：/session/new、/player/:id 都没有，
+     放在 COMMON 里会在每次搜索后误报「站点改版」并弹 Toast。 */
+  /* 播放页 / 会话页只保留全局壳：实测这两个页面没有 .movie-page-shell /
+     .movie-page-body / .app-primary-nav-desktop，列进 COMMON 会持续误报。 */
   var ANCHORS_COMMON = [
-    '.movie-app-bg', '.movie-page-shell', '.movie-page-body',
-    '.app-primary-nav-desktop', '.movie-side-menu-panel'
+    '.movie-app-bg', '.movie-side-menu-panel'
   ];
   var ANCHORS_HOME = [
-    '.movie-home-page-shell', '.movie-composer-root', '.movie-composer-text-input',
+    '.movie-page-shell', '.movie-page-body',
+    '.movie-home-page-shell', '.app-primary-nav-desktop',
+    '.movie-composer-root', '.movie-composer-text-input',
     '.movie-home-prompt-groups', '.movie-chip', '.home-feed-rail-track',
     '.home-feed-card', '.home-watch-calendar-list'
   ];
@@ -53,6 +58,14 @@
     if (el && !el.hasAttribute(name)) { el.setAttribute(name, ''); }
   }
   function text(el) { return el ? (el.textContent || '').trim() : ''; }
+
+  /* 站点用 keepalive 缓存路由：进入 /player 或 /session 后首页 DOM 仍留在文档里
+     （只是隐藏）。按 DOM 判首页会把 HOME 锚点套到播放页上连报「站点改版」。
+     一律按 pathname 判定。 */
+  function isHomePath() {
+    var p = location.pathname;
+    return p === '/' || p === '' || p === '/index.html';
+  }
 
   /* 站点会懒加载分片 CSS 并往 head 末尾插 <style>。我们的覆盖规则
      必须始终排在最后，否则同特异性下会被站点规则反压回去。 */
@@ -97,7 +110,11 @@
         var isLate = !!c.querySelector('.home-watch-calendar-list') ||
                      head.indexOf('本周追剧') >= 0;
         var isTail = head.indexOf('继续下滑') >= 0 || head.indexOf('加载更多') >= 0;
+        /* 有过播放历史时首页会多出「继续观看」大卡，实测占掉 250px，
+           把 6 列海报挤到首屏之外。跟日历一样排到海报墙之后。 */
+        var isResume = head.indexOf('继续观看') >= 0;
         if (isFeed) { setFlag(c, 'data-tv-feed'); }
+        else if (isResume) { setFlag(c, 'data-tv-resume'); }
         else if (isLate) { setFlag(c, 'data-tv-late'); }
         else if (isTail) { setFlag(c, 'data-tv-tail'); }
       }
@@ -108,7 +125,7 @@
      不写 innerHTML（站点 CSP 无 unsafe-inline，且避免把标题当 HTML 解析）。 */
   function tonight() {
     var old = q('.tv-tonight-card');
-    if (!q('.movie-home-page-shell')) { return; }
+    if (!isHomePath()) { return; }
 
     var card = q('.home-feed-card');
     if (!card) { return; }
@@ -176,7 +193,7 @@
   }
 
   function health() {
-    var isHome = !!q('.movie-home-page-shell');
+    var isHome = isHomePath();
     var list = ANCHORS_COMMON.concat(isHome ? ANCHORS_HOME : []);
     var missing = [];
     for (var i = 0; i < list.length; i++) {
@@ -202,6 +219,16 @@
       columns: cols, overflowX: overflow,
       inputFont: font, chipFont: chipFont,
       tonight: !!q('.tv-tonight-card'),
+      overlay: document.documentElement.getAttribute('data-tv-overlay') || '',
+      toolbar: !!q('.tv-toolbar'),
+      chipsHidden: (function () {
+        var g = q('.movie-home-prompt-groups');
+        return g ? window.getComputedStyle(g).display === 'none' : false;
+      })(),
+      composerHidden: (function () {
+        var c = q('.movie-composer-root');
+        return c ? window.getComputedStyle(c).display === 'none' : false;
+      })(),
       checked: list.length, missing: missing
     };
 

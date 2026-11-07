@@ -132,6 +132,8 @@ def main():
     ap.add_argument("--raw", action="store_true", help="打印完整 CDP 回包")
     ap.add_argument("--screenshot", default=None,
                     help="额外截 WebView 内容图（PNG，不受 FLAG_SECURE 影响）")
+    ap.add_argument("--await", dest="await_promise", action="store_true",
+                    help="awaitPromise:true，等 Promise resolve 再取值")
     args = ap.parse_args()
 
     expr = args.expr
@@ -165,7 +167,7 @@ def main():
     msg = call("Runtime.evaluate", {
         "expression": expr,
         "returnByValue": True,
-        "awaitPromise": False,
+        "awaitPromise": bool(args.await_promise),
         "userGesture": True,
     })
 

@@ -10,7 +10,8 @@ html body .tv-focused {
   outline: 3px solid #FF8A3D !important;
   outline-color: #FF8A3D !important;
   outline-offset: 3px !important;
-  -webkit-box-shadow: 0 0 0 7px rgba(255, 138, 61, 0.25) !important;
+  /* 只写未加前缀的一条：Chrome 83 把 -webkit-box-shadow 与 box-shadow 当别名，
+     两条并存时 JS 的 removeProperty 清不干净，会留下擦不掉的橙色光晕。 */
   box-shadow: 0 0 0 7px rgba(255, 138, 61, 0.25) !important;
   border-radius: 6px;
   /* 只过渡 box-shadow，不让 outline-color 渐变：焦点环必须即时可见，

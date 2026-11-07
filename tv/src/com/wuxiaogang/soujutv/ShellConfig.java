@@ -15,9 +15,11 @@ import java.util.Set;
 public final class ShellConfig {
 
     public static final String TAG = "SoujuTV";
-    public static final String APP_VERSION = "0.3.0";
-    public static final int APP_BUILD = 3;
-    public static final String BRIDGE_VERSION = "1.1.0-tv";
+    public static final String APP_VERSION = "0.5.0";
+    public static final int APP_BUILD = 5;
+    public static final String BRIDGE_VERSION = "1.2.0-tv";
+    /** 阶段 4 手机输入服务端口；换端口只改这里，二维码会同步变化。 */
+    public static final int INPUT_SERVER_PORT = 8088;
 
     /** 内置线路。与 iOS 版 ShellConfig.builtinDomains 对齐。 */
     public static final String[] BUILTIN_LINES = {

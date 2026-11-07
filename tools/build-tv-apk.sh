@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # 用 Android SDK 命令行工具直接打 TV APK，不依赖 Gradle / Maven。
 #
-# 阶段 0 用它验证「装不装得上」；阶段 1+2 继续沿用 —— 电视端目前只有 7 个 Java 类，
-# 没有第三方依赖，手工链路 2 秒出包、改一行就能装机实测，比等 AGP 同步快得多。
-# 等 B 阶段引入 media3 / ExoPlayer 时再切 Gradle。
+# 阶段 0 用它验证「装不装得上」；阶段 1~5 继续沿用。唯一第三方依赖是
+# ZXing core（阶段 4 二维码，纯 Java、无资源、无 .so），直接作为 d8 输入打进 dex，
+# 仍然不需要 Gradle / AAR 资源合并。改一行 2 秒出包，装机实测最快。
 #
 # 依赖（由 docs/tv-feasibility.md §8 记录的安装步骤准备）：
 #   ~/Library/Android/jdk17/home                 Temurin JDK 17
@@ -21,12 +21,13 @@ export JAVA_HOME ANDROID_HOME
 
 BT="$ANDROID_HOME/build-tools/34.0.0"
 JAR="$ANDROID_HOME/platforms/android-34/android.jar"
+ZXING="$TV/libs/zxing-core-3.5.3.jar"
 KS_DIR="$HOME/.souju-tv"
 KS="$KS_DIR/tv.jks"
 KS_PASS="soujutv-debug"
 
 for f in "$BT/aapt2" "$BT/d8" "$BT/zipalign" "$BT/apksigner" \
-         "$JAR" "$JAVA_HOME/bin/javac" "$JAVA_HOME/bin/keytool"; do
+         "$JAR" "$ZXING" "$JAVA_HOME/bin/javac" "$JAVA_HOME/bin/keytool"; do
   if [ ! -e "$f" ]; then
     echo "✗ 缺少：$f" >&2
     exit 1
@@ -61,14 +62,14 @@ SOURCE_FILES="$(find "$TV/src" -name '*.java' | sort)"
 echo "  $(echo "$SOURCE_FILES" | wc -l | tr -d ' ') 个源文件"
 # shellcheck disable=SC2086
 "$JAVA_HOME/bin/javac" -source 8 -target 8 -encoding UTF-8 -Xlint:-options \
-  -classpath "$JAR" \
+  -classpath "$JAR:$ZXING" \
   -d "$OUT/classes" \
   $SOURCE_FILES $GEN_SOURCES
 
-echo "=== 4/6 d8 → classes.dex ==="
+echo "=== 4/6 d8 → classes.dex（含 ZXing core） ==="
 # shellcheck disable=SC2046
 "$BT/d8" --lib "$JAR" --min-api 21 --output "$OUT/dex" \
-  $(find "$OUT/classes" -name '*.class')
+  $(find "$OUT/classes" -name '*.class') "$ZXING"
 
 echo "=== 5/6 合并 dex + zipalign ==="
 cp "$OUT/base.apk" "$OUT/unsigned.apk"

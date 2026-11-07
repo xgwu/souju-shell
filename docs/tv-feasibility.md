@@ -124,6 +124,44 @@ CDP 几何量取与 `docs/tv-stage3-home.png`（App 自注入皮肤后滚回顶�
 焦点引擎补了 `refind()`（站点重建 feed 卡后按「标签+可读文本+坐标」找回等价元素）与
 `recovered` 分支（彻底失联时落在上次位置附近，而不是列表第一个「首页」）。
 
+### 0.5 阶段 4+5 已验证通过（2026-11-07 14:35 实机）
+
+版本 `0.5.0` / build 5 / 336KB APK（新增 zxing 只为画二维码）。包含
+**四项用户实报 UI 修复** + **阶段 4 手机扫码输入** + **阶段 5 原生播放器**。
+
+**四项 UI 修复**（全部 CDP 断言回归通过）：
+
+| 问题 | 根因 | 修复 |
+|---|---|---|
+| 焦点移开后顶部菜单残留橙框 | 旧实现给站点元素写 inline `outline/box-shadow`，失焦时还原被站点高特异性 `:focus` 盖掉；多元素同时带环 | 改为 `data-tv-ring` 属性标记 + 单一焦点持有，遍历 12 键后全页 ring=1 |
+| 海报获焦后消失 | 获焦 `scale(1.04)` 放大元素，站点卡片 `overflow:hidden` 联动把图片裁没了 | 缩放改到内层 / 修 `transform-origin`，获焦后图片 196×296 完整可见 |
+| 「热门剧」热词行无意义 | 站点首屏两行 chips 占 ~120px | 隐藏 `.movie-home-prompt-groups`，首屏让给海报墙 |
+| 搜索框太大占地方 | 常驻 composer 占 ~100px | 收成右上角搜索图标；OK 开**自建**搜索浮层（默认聚焦输入框），BACK 关浮层、焦点还给图标。不自建浮层不行：站点的 `fixed` composer 被 `.keepalive-route-container` 的 `isolation:isolate` 锁在低层堆叠上下文，且聚焦输入框会触发 WebView 视口缩小 |
+
+**阶段 4（手机扫码输入）**：`LocalInputServer` 监听 8088、4 位配对码、ZXing 画二维码。
+实测 `/api/send?k=6688` → 电视 100ms 收到 `tv.remoteInput` → 用 React 受控组件原型
+setter 写入搜索框自动提交；无/错配对码一律 403。
+
+**阶段 5（原生播放器）**：`PlayerActivity` 用系统 `MediaPlayer`（不是 ExoPlayer ——
+直链 mp4 + Range 拉流 MediaPlayer 足够，media3 的收益只剩 DASH/DRM，不值得为此引入
+AAR 链）。遥控器全接管：OK 播放/暂停、←→ ±10s、↑↓ 音量、MENU 显隐控制条、BACK 退出。
+实测 H5 播放到 20:46 点「原生播放」→ 1 秒 `PLAYING duration=48:10` 续播、全部按键生效、
+网络不可达的流正确弹 `MEDIA_ERROR`。
+
+**本次最重要的技术发现 —— 伪装直链**：
+站点把整部 mp4 存在 `.jpg` 路径下（`p6-volc-community-sign.byteimg.com/...jpg~tplv-...`），
+CDN 回包 `content-type: image/jpeg` 但字节是 `ftyp isom/avc1`（`Range: bytes=0-127` 实测，
+总长 532MB、`accept-ranges: bytes`）。`video.currentSrc` 长得像封面图却在正常播放
+（`duration=2890s`、`currentTime` 前进）。**推论：媒体直链判据是 `video.duration > 0`，
+绝不能按扩展名过滤** —— 按 `.mp4/.m3u8` 后缀过滤会误杀真直链、放过真占位图。
+同时确认站点有全站 Service Worker（scope=`https://souju.ai/`，controller=true）。
+
+**顺带修复**：播放中无操作 8 分钟电视进屏保并把播放器暂停（用户实报场景）→
+`PlayerActivity` 加 `FLAG_KEEP_SCREEN_ON`；onPause 停 500ms 进度轮询、onResume 恢复。
+另：**adb 截屏拍不到原生播放器的视频层**（HUD 能拍到、视频层全黑），这是 MTK 对
+硬件 overlay 层的截屏限制 —— 播放器取证看 `player:` 日志与音频 `state:started`，
+画面以电视实际显示为准。
+
 ---
 
 ## 1. 目标设备事实（ADB 实测，非规格页推断）
@@ -235,9 +273,9 @@ HTTP 200   4021 bytes   0.79s
         ├── bridge.js          RPC 桥 + 环境标记 + 3 个 polyfill
         ├── focus.js/css       候选集 / 轴向最近邻 / refind / inline 焦点环
         └── tv-skin.css/js     1200px 全宽版式 / 6 列网格 / 今晚首选 / 锚点自检  ← 阶段 3
-                                     ↓ 阶段 4+
-    ├── LocalInputServer      手机扫码输入（局域网 HTTP）
-    └── PlayerActivity        media3 / ExoPlayer
+        └── tv-overlay.js      工具栏 / 搜索浮层 / 手机输入回传 / 媒体嗅探          ← 阶段 4+5
+    ├── LocalInputServer      手机扫码输入（局域网 HTTP + 配对码）                 ← 阶段 4
+    └── PlayerActivity        系统 MediaPlayer 原生播放器                          ← 阶段 5
 ```
 
 ### 模块清单（阶段 1~3 已落地，其余为待做）
@@ -254,8 +292,8 @@ HTTP 200   4021 bytes   0.79s
 | `assets/focus.js` + `focus.css` | 候选集、轴向最近邻、宽元素特例、`refind`、inline 焦点环 | ✅ 已实现 |
 | `assets/tv-skin.css` | 1200px 全宽版式、6 列网格、24px 级字号、深色令牌层 | ✅ 阶段 3 |
 | `assets/tv-skin.js` | `data-*` 标记、首屏排序、今晚首选卡、锚点自检 + `reportHealth` | ✅ 阶段 3 |
-| `LocalInputServer` | 二维码 + 输入回传 | ⏳ 阶段 4 |
-| `PlayerActivity` | ExoPlayer + 遥控器播放条 | ⏳ 阶段 5 |
+| `LocalInputServer` + `QrGen` | 二维码 + 输入回传（配对码隔离） | ✅ 已实现（阶段 4） |
+| `PlayerActivity` | 系统 MediaPlayer + 遥控器播放条 | ✅ 已实现（阶段 5） |
 
 **当前实现刻意用 Java + 手工 aapt2 构建**：7 个类、零第三方依赖、2 秒出 44KB APK。
 估时按「改一行立刻装机实测」的反馈速度算，比上 Gradle 拉 AGP 依赖更划算。
@@ -543,11 +581,11 @@ adb shell cmd webviewupdate set-webview-implementation com.google.android.webvie
 | 1 | WebView 壳 + 桥 + 线路 failover | 2 天 | ✅ **已完成**，见 §0.3：站点调用 `getCapabilities`、令牌隔离、failover 全通过 |
 | 2 | **遥控器焦点引擎** | 2–3 天 | ✅ **已完成**，见 §0.3：83 个候选、无斜跳、橙色焦点环实机截图可见 |
 | **3** | TV 版式皮肤（1280×720 坐标系）+ 兼容层 + 锚点自检 | 2–3 天 | ✅ **已完成**，见 §0.4：6 列 190px 网格、无横向溢出、26px 主字号、避开 5 个失效 CSS 特性、焦点连续 |
-| 4 | 手机扫码输入 | 1 天 | 手机输入后 TV 200ms 内出结果 |
-| 5 | ExoPlayer 播放 | 2–3 天 | 1080p 硬解，遥控器可控播放条 |
+| 4 | 手机扫码输入 | 1 天 | ✅ **已完成**，见 §0.5：配对码隔离 403 实测、回传 ~100ms |
+| 5 | 原生播放 | 2–3 天 | ✅ **已完成**，见 §0.5：MediaPlayer 续播 1s 起播、遥控器全接管、伪装直链识破 |
 
-阶段 0/1/2/3 已完成，**剩余约 3–4 个工作日**（阶段 4+5），业余节奏 3–5 天。
-「能装、能显示、遥控器能走、沙发上能看清」四件事都有实机证据了，剩下的是**输入与播放**。
+阶段 0~5 **全部完成**。「能装、能显示、遥控器能走、沙发上能看清、能输入、能播片」
+六件事都有实机证据。剩余为可选增强（选集 UI、播放位置回写站点历史、登录入口、远程配置）。
 
 ---
 
@@ -563,7 +601,7 @@ adb shell cmd webviewupdate set-webview-implementation com.google.android.webvie
 | WebView 能力边界 | ✅ `tools/tv-webview-probe.py` → `docs/tv-webview-capabilities.json` |
 | **JDK 17** | ✅ Temurin `17.0.21+9`，`~/Library/Android/jdk17/home`（清华 Adoptium 镜像） |
 | **Android SDK** | ✅ cmdline-tools 12.0 / platform-34 / build-tools 34.0.0（dl.google.com 直连） |
-| **构建脚本** | ✅ `tools/build-tv-apk.sh`：aapt2 → javac → d8 → zipalign → apksigner，阶段 3 产物 52KB |
+| **构建脚本** | ✅ `tools/build-tv-apk.sh`：aapt2 → javac → d8 → zipalign → apksigner，阶段 5 产物 336KB（含 zxing） |
 | **实机 CSS 试跑** | ✅ `tools/tv-skin-preview.py`：CDP 注入本地皮肤 + 截图 + 几何报告，不用重装 |
 | **实机 JS 量取** | ✅ `tools/tv-cdp.py`：纯标准库 WebSocket 客户端（Chrome 83 只回整数 id，见注释） |
 | **签名证书** | ✅ `~/.souju-tv/tv.jks`，30 年有效；v1/v2/v3 全通过，覆盖安装签名不变 |
@@ -614,7 +652,7 @@ TV 端账号登录 / 扫码入口。改皮肤不用重装：`python3 tools/tv-sk
 | ~~`adb install` 被安装校验拦截~~ | **已排除**（实测 `Success`） | — | 两条 `settings put global` 与 U 盘兜底留作备用 |
 | 32 位 ABI 导致某个依赖装不上 | 中（空壳已验证通过） | 编译/运行时失败 | 空壳不含 `.so`，天然兼容；将来引入 ExoPlayer 时核对 `.so` 架构 |
 | 杜比视界未必对三方 App 开放 | 中 | B 阶段只能拿到 HDR10/HLG | 实测；不承诺 DV，UI 上不标 DV 角标 |
-| WebView 内 HEVC 不支持 | 已确认 | HEVC 片源播不了 | B 阶段 ExoPlayer 走 MediaCodec |
+| WebView 内 HEVC 不支持 | 已确认 | HEVC 片源播不了 | ✅ 阶段 5 已缓解：原生 MediaPlayer 走系统 MediaCodec（H.264/HEVC 由芯片决定）；H.264 直链实测可播 |
 | 4GB 内存跑 SPA + hls.js 吃紧 | 低–中 | 卡顿/被系统杀 | 限制海报预载数；B 阶段把播放挪出 WebView |
 | 语音键不可用 | 确定 | 少一个输入入口 | 用手机扫码输入替代 |
 
@@ -622,14 +660,13 @@ TV 端账号登录 / 扫码入口。改皮肤不用重装：`python3 tools/tv-sk
 
 ## 10. 一句话建议
 
-阶段 0/1/2/3 已完成，接下来做 **阶段 4：手机扫码输入**（约 1 天），然后阶段 5 ExoPlayer。
+**阶段 0~5 全部完成**。电视版搜剧AI 已经是一个完整的可用产品：
+遥控器逛片、扫码输入搜索、原生播放器看片（自动续播 H5 进度）。
+`docs/tv-stage3-home.png` 是 App 自注入皮肤后的首屏。
 
-「能装、能显示、遥控器能走、沙发上能看清」四件事都有实机证据了，
-`docs/tv-stage3-home.png` 是 App 自注入皮肤后的首屏。剩下的最大问题是**打字**：
-电视没有键盘、语音键被系统助手占用，搜索框现在只靠热词和焦点可用，用户输不了片名。
-
-阶段 3 已把 `shell.reportHealth` 锚点自检接上，站点改版导致选择器失效时会主动报警，
-而不是等用户发现「突然变丑了」；启动期的假警报用 6 秒宽限 + 连续两次一致签名压掉了。
-
-系统 WebView 已决定不动（§5.6），没有待拍板事项。阶段 4 唯一需要确认的是
-「手机输入页走局域网 HTTP 还是 WebSocket」——建议 HTTP 轮询起步，延迟目标 < 200ms。
+- 伪装直链（`.jpg` 路径下 532MB mp4、content-type 谎报 image/jpeg）与
+  「`video.duration>0` 即可信」的判据已写进 `tv/README.md` 与代码注释，
+  站点换 CDN 域名也不影响。
+- 系统 WebView 维持不动（§5.6），无待拍板事项。
+- 可选增强（未排期）：选集/剧集列表原生 UI、播放位置回写站点「继续观看」、
+  账号登录入口、远程线路配置下发。

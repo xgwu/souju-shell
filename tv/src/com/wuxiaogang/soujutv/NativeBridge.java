@@ -30,6 +30,12 @@ public final class NativeBridge {
         void onExternalUrl(String url, String title);
         void onThemeChange(String mode);
         void onHealth(String missing, String skin, String path);
+        /** 阶段 4：浮层开关。原生必须知道，BACK 才知道该关浮层还是回历史。 */
+        void onOverlayState(boolean open, String mode);
+        /** 阶段 4：手机输入页地址 / 配对码 / 二维码 data URI。 */
+        JSONObject inputServerInfo();
+        /** 阶段 5：启动原生播放器。 */
+        void onPlayNative(String url, String title, long positionMs);
     }
 
     private final WebView web;
@@ -162,8 +168,40 @@ public final class NativeBridge {
                     reply(oid, ok());
                     return;
 
+                case "shell.setOverlay": {
+                    boolean open = p.optBoolean("open", false);
+                    String overlayMode = p.optString("mode", "");
+                    host.onOverlayState(open, overlayMode);
+                    BridgeLog.i("overlay", "OVERLAY " + (open ? "OPEN " : "CLOSE ") + overlayMode);
+                    reply(oid, ok());
+                    return;
+                }
+
+                case "shell.getInputServerInfo":
+                    reply(oid, host.inputServerInfo());
+                    return;
+
+                case "playback.playNative": {
+                    String u = p.optString("url", "");
+                    if (!u.startsWith("http://") && !u.startsWith("https://")) {
+                        BridgeLog.w("player", "DENY 非 http(s) 播放地址 " + u.substring(0, Math.min(60, u.length())));
+                        reply(oid, fail("BAD_URL", "只接受 http(s) 直链"));
+                        return;
+                    }
+                    host.onPlayNative(u, p.optString("title", "搜剧TV"),
+                            p.optLong("positionMs", 0));
+                    BridgeLog.i("player", "PLAY_NATIVE title=" + p.optString("title", "")
+                            + " pos=" + p.optLong("positionMs", 0));
+                    reply(oid, ok().put("launched", true));
+                    return;
+                }
+
                 case "playback.getNativePlayerState":
-                    reply(oid, ok().put("state", "idle").put("nativePlayer", JSONObject.NULL));
+                    // 站点用自己的 capabilities.actions 决定要不要走 nativePlayer 协议。
+                    // 这里刻意仍报 idle + null：阶段 5 的播放器是「壳层独立入口」，
+                    // 不伪装成站点期望的 embedded native player，避免触发它没实现的 slot 协议。
+                    reply(oid, ok().put("state", "idle").put("nativePlayer", JSONObject.NULL)
+                            .put("standalonePlayer", true));
                     return;
 
                 case "cast.getState":
@@ -200,7 +238,10 @@ public final class NativeBridge {
                 .put("statusBar.setStyle")
                 .put("shell.getTheme")
                 .put("shell.setTheme")
-                .put("shell.reportHealth");
+                .put("shell.reportHealth")
+                .put("shell.setOverlay")
+                .put("shell.getInputServerInfo")
+                .put("playback.playNative");
 
         return new JSONObject()
                 .put("platform", "android")

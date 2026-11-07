@@ -16,7 +16,12 @@ import android.webkit.WebView;
 import android.widget.FrameLayout;
 import android.widget.Toast;
 
+import org.json.JSONException;
+import org.json.JSONObject;
+
+import java.security.SecureRandom;
 import java.util.Arrays;
+import java.util.Locale;
 
 /**
  * 搜剧 TV 阶段 1+2 宿主。
@@ -48,6 +53,11 @@ public class MainActivity extends Activity
     private boolean skinEnabled = true;
     /** 皮肤锚点缺失只提示一次，避免 SPA 每次换页都弹 Toast。 */
     private boolean healthWarned = false;
+    /** 阶段 4：浮层状态由 JS 通过 shell.setOverlay 同步过来，BACK 据此决定行为。 */
+    private boolean overlayOpen = false;
+    private String overlayMode = "";
+    private LocalInputServer inputServer;
+    private String inputPin = "";
     private long lastKeyAt = 0;
     private long lastBackAt = 0;
     private long lastFinishAt = 0;
@@ -106,6 +116,8 @@ public class MainActivity extends Activity
         web.setWebViewClient(new TvWebViewClient(this));
         web.setWebChromeClient(new TvChromeClient(this));
 
+        startInputServer();
+
         BridgeLog.i("boot", "UA " + s.getUserAgentString());
         BridgeLog.i("boot", "LINES " + Arrays.toString(lines));
         loadFromIntent(getIntent());
@@ -131,6 +143,28 @@ public class MainActivity extends Activity
             skinEnabled = !("off".equals(v) || "0".equals(v) || "false".equals(v));
             BridgeLog.i("boot", "SKIN_OVERRIDE " + skin + " → " + skinEnabled);
         }
+    }
+
+    /** 阶段 4：随机配对码 + 局域网输入服务。回调跑在 server 线程，必须切回主线程再 emit。 */
+    private void startInputServer() {
+        inputPin = String.format(Locale.US, "%04d", new SecureRandom().nextInt(10000));
+        inputServer = new LocalInputServer(ShellConfig.INPUT_SERVER_PORT, inputPin,
+                new LocalInputServer.Callback() {
+                    @Override public void onRemoteText(final String text, final long at) {
+                        runOnUiThread(new Runnable() {
+                            @Override public void run() {
+                                try {
+                                    bridge.emit("tv.remoteInput", new JSONObject()
+                                            .put("text", text).put("at", at));
+                                } catch (JSONException e) {
+                                    BridgeLog.e("input", "EMIT_FAIL " + e.getMessage());
+                                }
+                            }
+                        });
+                    }
+                });
+        inputServer.start();
+        BridgeLog.i("boot", "INPUT_PIN " + inputPin + " url=" + inputServer.url());
     }
 
     private void loadFromIntent(Intent intent) {
@@ -162,6 +196,9 @@ public class MainActivity extends Activity
 
     @Override
     public void onMainFrameStarted(String url) {
+        // 新文档 = 新浮层状态；SPA 换页由 tv-overlay.js 自己 close()
+        overlayOpen = false;
+        overlayMode = "";
         boolean trusted = ShellConfig.isTrustedHost(ShellConfig.hostOf(url));
         if (trusted) {
             bridge.rotateToken();
@@ -193,6 +230,8 @@ public class MainActivity extends Activity
                     TvFocusEngine.state(web);
                     TvFocusEngine.verify(web);
                     dumpDom();
+                    // 兜底：浮层打开时即使桥调用时序不对，也能拿到二维码
+                    bridge.emit("tv.qrReady", inputServerInfo());
                 }
             }, 6500);
         }
@@ -280,6 +319,34 @@ public class MainActivity extends Activity
         });
     }
 
+    /** 阶段 4：浮层开着时 BACK 先收浮层并把焦点还给触发图标，不回历史、不退出。 */
+    @Override
+    public void onOverlayState(boolean open, String mode) {
+        overlayOpen = open;
+        overlayMode = mode == null ? "" : mode;
+        BridgeLog.i("overlay", "STATE open=" + open + " mode=" + overlayMode);
+    }
+
+    @Override
+    public JSONObject inputServerInfo() {
+        JSONObject o = new JSONObject();
+        try {
+            o.put("ok", true)
+                    .put("url", inputServer == null ? "" : inputServer.url())
+                    .put("pin", inputPin)
+                    .put("port", ShellConfig.INPUT_SERVER_PORT)
+                    .put("qr", inputServer == null ? "" : inputServer.qrDataUri());
+        } catch (JSONException e) {
+            BridgeLog.e("input", "INFO_FAIL " + e.getMessage());
+        }
+        return o;
+    }
+
+    @Override
+    public void onPlayNative(String url, String title, long positionMs) {
+        PlayerActivity.launch(this, url, title, positionMs);
+    }
+
     // MARK: - 遥控器
 
     @Override
@@ -306,6 +373,14 @@ public class MainActivity extends Activity
 
     private boolean handleBack() {
         if (customView != null) { onHideCustomView(); return true; }
+        if (overlayOpen) {
+            BridgeLog.i("key", "BACK → CLOSE_OVERLAY " + overlayMode);
+            TvFocusEngine.closeOverlay(web);
+            overlayOpen = false;
+            overlayMode = "";
+            lastBackAt = 0;
+            return true;
+        }
         // failover 会把失败线路留在历史栈里，直接 goBack 会让用户退回错误页再触发一次 failover。
         // 只回退到可信站点的历史项；找不到就走双击退出。
         android.webkit.WebBackForwardList list = web.copyBackForwardList();
@@ -362,6 +437,11 @@ public class MainActivity extends Activity
                 + "focusjs:!!window.__tvKey,"
                 + "atPolyfill:typeof Array.prototype.at==='function',"
                 + "skin:document.documentElement.getAttribute('data-tv-skin'),"
+                + "overlay:document.documentElement.getAttribute('data-tv-overlay')||'',"
+                + "toolbar:!!document.querySelector('.tv-toolbar'),"
+                + "replaceChildren:typeof Element.prototype.replaceChildren==='function',"
+                + "player:(function(){try{return JSON.parse("
+                + "window.__tvPlayerState?window.__tvPlayerState():'{}');}catch(e){return {};}})(),"
                 + "skinState:(function(){try{return JSON.parse("
                 + "window.__tvSkinState?window.__tvSkinState():'{}');}catch(e){return {};}})()"
                 + "});}catch(e){return JSON.stringify({error:String(e)});}})()";
@@ -398,6 +478,7 @@ public class MainActivity extends Activity
     protected void onDestroy() {
         handler.removeCallbacksAndMessages(null);
         if (customView != null) onHideCustomView();
+        if (inputServer != null) inputServer.stop();
         web.destroy();
         super.onDestroy();
     }

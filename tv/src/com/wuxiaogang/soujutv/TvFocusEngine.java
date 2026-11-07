@@ -62,6 +62,9 @@ public final class TvFocusEngine {
             injectCss(web, ctx, "tv-skin.css", "__tvSkinCss");
             String skin = readAsset(ctx, "tv-skin.js");
             if (!skin.isEmpty()) web.evaluateJavascript(skin, null);
+            // 阶段 4/5：顶部工具栏、搜索/扫码浮层、媒体地址嗅探
+            String overlay = readAsset(ctx, "tv-overlay.js");
+            if (!overlay.isEmpty()) web.evaluateJavascript(overlay, null);
         }
 
         if ("start".equals(phase) || "finish".equals(phase)) {
@@ -133,6 +136,18 @@ public final class TvFocusEngine {
         });
     }
 
+    /** BACK 在浮层开着时只收浮层，并把焦点还给触发图标。 */
+    public static void closeOverlay(WebView web) {
+        web.evaluateJavascript(
+                "(function(){try{return window.__tvCloseOverlay?String(window.__tvCloseOverlay()):'missing';}"
+                        + "catch(e){return 'error:'+e;}})()",
+                new ValueCallback<String>() {
+                    @Override public void onReceiveValue(String value) {
+                        BridgeLog.i("overlay", "CLOSE_OVERLAY_RESULT " + value);
+                    }
+                });
+    }
+
     /** 取证：读当前文档里的焦点与桥状态。 */
     public static void state(WebView web) {
         web.evaluateJavascript(
@@ -172,6 +187,10 @@ public final class TvFocusEngine {
                 + "skinCss:!!document.getElementById('__tvSkinCss'),"
                 + "skinMarker:document.documentElement.getAttribute('data-tv-skin'),"
                 + "skinState:sk,gridColumns:cols,"
+                + "overlay:document.documentElement.getAttribute('data-tv-overlay')||'',"
+                + "toolbar:!!document.querySelector('.tv-toolbar'),"
+                + "ringElements:document.querySelectorAll('[data-tv-ring]').length,"
+                + "replaceChildren:typeof Element.prototype.replaceChildren==='function',"
                 + "overflowX:document.documentElement.scrollWidth>window.innerWidth+2});"
                 + "}catch(e){return JSON.stringify({error:String(e)});}})()";
         web.evaluateJavascript(js, new ValueCallback<String>() {
