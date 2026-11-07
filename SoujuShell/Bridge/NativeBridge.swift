@@ -17,6 +17,10 @@ final class NativeBridge: NSObject, WKScriptMessageHandler {
     private let model: ShellModel
     private let downloads: DownloadManager
 
+    /// 已拒绝过的来源，避免同一页面反复触发日志把 console 刷满。
+    /// 只用于记日志，不做任何"拒绝过就永久放行"的缓存。
+    private var rejectedOrigins = Set<String>()
+
     init(model: ShellModel, downloads: DownloadManager = .shared) {
         self.model = model
         self.downloads = downloads
@@ -27,6 +31,18 @@ final class NativeBridge: NSObject, WKScriptMessageHandler {
 
     func userContentController(_ userContentController: WKUserContentController,
                                didReceive message: WKScriptMessage) {
+        // 来源校验必须在解析 payload 之前 —— 这是桥的唯一入口，
+        // 任何被这个 WKWebView 加载的页面都能 postMessage 到 nativeBridge，
+        // 不需要我们注入的脚本（那是主 frame 的便利，不是权限边界）。
+        guard isTrustedOrigin(message) else {
+            let origin = message.frameInfo.securityOrigin
+            let label = "\(origin.protocol.isEmpty ? "?" : origin.protocol)://\(origin.host)"
+            if rejectedOrigins.insert(label).inserted {
+                model.log("bridge", "拒绝来自 \(label) 的调用 —— 不在线路白名单内")
+            }
+            return
+        }
+
         guard let body = message.body as? [String: Any] else {
             model.log("bridge", "收到非字典 payload：\(message.body)")
             return
@@ -92,6 +108,19 @@ final class NativeBridge: NSObject, WKScriptMessageHandler {
                 "skin": current.rawValue
             ])
 
+        // MARK: 皮肤自检
+        //
+        // 皮肤 JS 每次 sync 后验一遍样式与锚点，结论从这里回传。
+        // 同样是私有约定，不进 capabilities —— 站点不该知道这件事。
+
+        case ("shell", "reportHealth"):
+            model.reportSkinHealth(
+                missing: (params["missing"] as? String) ?? "",
+                skin: (params["skin"] as? String) ?? "",
+                path: (params["path"] as? String) ?? ""
+            )
+            reply(operationID, ["ok": true])
+
         // MARK: 下载
 
         case ("download", "enqueue"):
@@ -148,6 +177,48 @@ final class NativeBridge: NSObject, WKScriptMessageHandler {
                 "message": "\(module).\(method) 未实现"
             ])
         }
+    }
+
+    // MARK: - 来源校验
+
+    /// 允许调用桥的 host 集合。
+    ///
+    /// 两个来源：
+    ///   1. 用户配置的线路（`effectiveDomains`，自定义优先、否则内置两条）；
+    ///   2. **用户主动加载过的 host**（工具箱换线路、「载入任意 URL」）。
+    ///
+    /// 刻意**不**读 `webView.url.host` —— 那个值会被页面自己的跳转改写，
+    /// 恶意页面跳一次就把自己写进白名单，校验形同虚设。
+    /// 站点是域名轮换架构，新域名随时会换，所以白名单跟着配置走而不是写死。
+    private func trustedHosts() -> Set<String> {
+        var hosts = Set<String>()
+        for raw in ShellSettings.shared.effectiveDomains {
+            if let host = URL(string: raw)?.host?.lowercased(), !host.isEmpty {
+                hosts.insert(host)
+            }
+        }
+        if let manual = controller?.manualHosts {
+            hosts.formUnion(manual)
+        }
+        return hosts
+    }
+
+    /// 是否来自可信页面。
+    ///
+    /// 允许同后缀子域（`m.souju.ai` 命中 `souju.ai`）：站点把某些页面放子域是常态，
+    /// 而子域与主域同属一个运营方，信任边界是一致的。
+    ///
+    /// 空 host 一律拒绝。桥只在主 frame 注入（`forMainFrameOnly: true`），
+    /// 主 frame 的真实站点页面不会出现空 origin —— 空值只会来自 `about:blank`、`data:`
+    /// 这类页面，它们没有理由调用原生能力。
+    private func isTrustedOrigin(_ message: WKScriptMessage) -> Bool {
+        let host = message.frameInfo.securityOrigin.host.lowercased()
+        guard !host.isEmpty else { return false }
+
+        let allowed = trustedHosts()
+        if allowed.contains(host) { return true }
+        for candidate in allowed where host.hasSuffix("." + candidate) { return true }
+        return false
     }
 
     // MARK: - 能力协商

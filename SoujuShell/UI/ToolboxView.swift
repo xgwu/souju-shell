@@ -356,6 +356,26 @@ struct ToolboxView: View {
 
                 Divider().overlay(Palette.hairline)
 
+                HStack(spacing: 10) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("皮肤自检")
+                            .font(Typography.body)
+                            .foregroundColor(Palette.ink)
+                        Text(model.skinHealthIssue.isEmpty
+                             ? "样式变量与页面结构都命中"
+                             : "缺失 \(model.skinHealthIssue) · 站点可能已改版")
+                            .font(Typography.caption)
+                            .foregroundColor(model.skinHealthIssue.isEmpty ? Palette.inkFaint : Palette.danger)
+                    }
+                    Spacer(minLength: 8)
+                    Circle()
+                        .fill(model.skinHealthIssue.isEmpty ? Palette.hairline : Palette.danger)
+                        .frame(width: 8, height: 8)
+                }
+                .padding(.vertical, 12)
+
+                Divider().overlay(Palette.hairline)
+
                 ActionRow(
                     title: "桥日志",
                     subtitle: "\(model.consoleEntries.count) 条 · 含原始 payload"

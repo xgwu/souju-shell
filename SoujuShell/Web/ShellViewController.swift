@@ -23,6 +23,20 @@ final class ShellViewController: UIViewController {
     private var observations: [NSKeyValueObservation] = []
     private var isFailingOver = false
 
+    /// 用户**主动**指定过的 host（工具箱里换线路、或「载入任意 URL」）。
+    ///
+    /// 桥的来源校验要用它，但不能用 `webView.url.host` —— 后者会被页面自己的跳转改写，
+    /// 恶意页面只要跳一次就能把自己写进白名单，等于没有校验。
+    /// 这里只记录经过用户操作或线路配置进入的 host。
+    private(set) var manualHosts = Set<String>()
+
+    private func rememberHost(_ raw: String) {
+        let normalized = raw.contains("://") ? raw : "https://" + raw
+        if let host = URL(string: normalized)?.host?.lowercased(), !host.isEmpty {
+            manualHosts.insert(host)
+        }
+    }
+
     init(model: ShellModel, downloads: DownloadManager = .shared) {
         self.model = model
         self.downloads = downloads
@@ -328,6 +342,7 @@ final class ShellViewController: UIViewController {
 
     func forceLoad(domain: String) {
         let normalized = domain.hasPrefix("http") ? domain : "https://" + domain
+        rememberHost(normalized)
         domainQueue = [normalized]
         currentDomainIndex = 0
         loadCurrentDomain()
@@ -341,6 +356,7 @@ final class ShellViewController: UIViewController {
 
         var request = URLRequest(url: url)
         request.timeoutInterval = ShellConfig.requestTimeout
+        rememberHost(normalized)
         model.state = .loading
         model.progress = 0
         webView.load(request)

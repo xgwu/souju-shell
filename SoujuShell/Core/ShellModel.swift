@@ -38,6 +38,11 @@ final class ShellModel: ObservableObject {
     /// 是否处于"跟着站点主题走"的状态。关闭后固定深色。
     @Published var followsSiteTheme: Bool = true
 
+    /// 皮肤自检的最近结论。空串 = 样式与结构都命中；
+    /// 非空 = 缺失的锚点标识（`css-var` / `composer` / `bottom-nav`），由工具箱展示。
+    /// 只在内存里，不持久化 —— 它是当前这一页的现场，不是长期状态。
+    @Published var skinHealthIssue: String = ""
+
     // MARK: - 面板
 
     @Published var showToolbox = false
@@ -136,6 +141,24 @@ final class ShellModel: ObservableObject {
             } else if normalized.contains("dark") {
                 if self.colorScheme != .light { self.colorScheme = .light }
             }
+        }
+    }
+
+    // MARK: - 皮肤自检
+
+    /// 皮肤 JS 每次 `sync` 后回传的结论。
+    ///
+    /// 站点改版是这类壳最典型的失效方式，而它**不产生任何错误**：
+    /// 选择器匹配不上，样式规则被静默忽略，页面照常渲染，只是退回站点原样。
+    /// 没有这条上报，唯一能发现的方式就是人眼看出"变丑了"。
+    func reportSkinHealth(missing: String, skin: String, path: String) {
+        onMain {
+            if self.skinHealthIssue != missing { self.skinHealthIssue = missing }
+        }
+        if missing.isEmpty {
+            log("skin", "自检通过 · \(skin) @ \(path)")
+        } else {
+            log("skin", "自检异常 · \(skin) @ \(path) · 缺失 \(missing)")
         }
     }
 

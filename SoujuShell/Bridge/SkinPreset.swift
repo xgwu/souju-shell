@@ -2130,6 +2130,67 @@ html[data-skin="souju-dark"] .short-drama-control-drawer-layer .react-player-epi
     try { applyMode(mode); return true; } catch (e) { return false; }
   };
 
+  // ---------- 皮肤健康自检 ----------
+  //
+  // 站点改版后皮肤会整体失效，但注入本身不报错 —— 用户看到的是「突然变丑了」，
+  // 原生侧完全不知情，也没法在别处发现。这里每次 sync 之后验一遍，异常回传工具箱。
+  //
+  // 只验两个信号，都便宜且稳定：
+  //   ① 皮肤 CSS 里的变量有没有值 —— 空值说明规则压根没命中，比看颜色可靠
+  //   ② 当前路由的关键锚点在不在 —— 站点改版最直接的证据
+  var bootAt = Date.now();
+  var healthKey = null;
+
+  function cssVariableValue() {
+    try {
+      var cs = getComputedStyle(document.documentElement);
+      // 两套介质的变量名不同：dark 层定义 --bg，light 层定义 --paper
+      var name = DARK ? "--bg" : "--paper";
+      return (cs.getPropertyValue(name) || "").trim();
+    } catch (e) { return ""; }
+  }
+
+  function routeAnchors() {
+    var list = [];
+    if (RE_HOME.test(path())) {
+      list.push([".movie-composer-root", "composer"]);
+    }
+    // 底部导航是唯一全站都在的锚点，拿它当「站点结构还在」的基线
+    list.push(["nav, .app-primary-bottom-nav", "bottom-nav"]);
+    return list;
+  }
+
+  function checkHealth() {
+    // 注入后头 800ms，样式表可能还没解析完，这段时间的结论不可信
+    if (Date.now() - bootAt < 800) { return; }
+
+    var missing = [];
+    if (!cssVariableValue()) { missing.push("css-var"); }
+    var anchors = routeAnchors();
+    for (var i = 0; i < anchors.length; i++) {
+      if (!document.querySelector(anchors[i][0])) { missing.push(anchors[i][1]); }
+    }
+
+    var result = missing.join(",");
+    var key = path() + "|" + result;
+    // 同一路由的同一条结论只报一次：sync 由 MutationObserver 驱动，每 200ms 会跑一遍，
+    // 不挡的话日志会被同一条刷满，真正的变化反而看不见
+    if (key === healthKey) { return; }
+    healthKey = key;
+
+    try {
+      var b = window.H5ShellNativeBridge;
+      if (b && typeof b.call === "function") {
+        b.call("shell", "reportHealth", {
+          skin: SKIN,
+          mode: DARK ? "dark" : "light",
+          path: path(),
+          missing: result
+        });
+      }
+    } catch (e) {}
+  }
+
   // 一次 sync 把所有区块对齐到当前路由与最新数据
   function sync(force) {
     loadWatchData(force ? 0 : 1500);
@@ -2143,6 +2204,8 @@ html[data-skin="souju-dark"] .short-drama-control-drawer-layer .react-player-epi
     if (!RE_SHORT.test(path())) {
       setStatusBar(DARK ? "lightContent" : "darkContent");
     }
+
+    checkHealth();
   }
 
   // 站点每次路由切换都会大面积重建 DOM，我们的节点会被 React 顺手带走；

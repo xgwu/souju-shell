@@ -76,6 +76,18 @@ bash tools/open-sideloadly.sh     # 启动 Sideloadly（钉死可用的 Apple IP
 > 7 天到期 App 会闪退。**不要卸载**，直接用 Sideloadly 再 Start 一遍覆盖安装，
 > Bundle ID 不变则沙盒数据全保留（站点登录态、播放进度都在 WKWebView 的 localStorage 里）。
 
+**自动续签的两个前提，缺一不可**（2026-11-07 实测，两条当时都不满足）：
+
+1. **Wi-Fi 调试通道**。只走 USB 的话，拔线 daemon 就看不见设备。
+   检测：`bash tools/check-wifi-sync.sh`（拔线后跑，看 Xcode 视角还有没有设备、
+   有没有 `_apple-mobdev2._tcp` 的 Bonjour 广播）。
+   装机时实测：无广播、拔线后设备列表为空 —— 说明当时只有 USB。
+   开启方式：Finder → 侧边栏点 iPhone → 通用 → 选项 → 勾「通过 Wi-Fi 与此 iPhone 同步」。
+2. **daemon 常驻**。`launchctl list | grep sideload` 当时**没有条目**，
+   说明 `sideloadly-daemon` 是 GUI 拉起的普通进程，不是 LaunchAgent ——
+   Mac 重启或注销后不会自己起来，续签也就断了。
+   要么把 Sideloadly 加进登录项，要么到期手动插线重装。
+
 ---
 
 ## 3. 壳做了什么（能力矩阵）
@@ -162,6 +174,9 @@ bash tools/open-sideloadly.sh     # 启动 Sideloadly（钉死可用的 Apple IP
 | `download.play` | `{ taskId? \| url? }` | `{ ok, taskId }` + 弹原生播放器 | ✅ |
 | `download.showManager` | `{}` | `{ ok:true }` + 弹下载列表 | ✅ |
 | `download.storeCover` | `{ movieId?, cover }` | `{ ok:true }` | ✅ |
+| `shell.toggleTheme` / `setTheme` | `{ mode? }` | `{ ok, mode, skin }` | ✅ 私有，不进 actions |
+| `shell.getTheme` | `{}` | `{ ok, mode, skin }` | ✅ 私有 |
+| `shell.reportHealth` | `{ skin, mode, path, missing }` | `{ ok:true }` | ✅ 私有，皮肤自检上报 |
 | `cast.openAirPlayRoutePicker` | — | 弹 AirPlay 面板 | ✅ 未在 actions 中上报 |
 | `playback.getNativePlayerState` | `{}` | `{ state:"idle", nativePlayer:null }` | ✅ 空态 |
 | `auth.getState` | `{}` | `{ ok:false, code:"NOT_IMPL" }` | ❌ 站点启动时会调，见下 |
@@ -171,6 +186,28 @@ bash tools/open-sideloadly.sh     # 启动 Sideloadly（钉死可用的 Apple IP
 **关于 `auth.*`**：站点内置了一套原生登录协议 `aimovie.native-auth.project-jwt.v1`，靠 `capabilityMarker: "project_jwt_v1"` 激活；激活后要求壳走 `transport: "web_jwt_cookie_exchange"` 做 JWT 交换。本壳**不声明该 marker**，所以站点按"无原生登录"处理，回落到自己的 web cookie 登录——登录/收藏/历史都正常。如实回 `NOT_IMPL` 而不是假装成功，是刻意的。
 
 `capabilities.actions` 是站点的**唯一判定依据**（`mt(caps).includes("download.enqueue")`）。谎报会让它调用不存在的方法然后静默降级 —— 比不支持更难查，所以这里只报真的实现了的。
+
+### 来源校验（2026-11-07 补）
+
+`WKScriptMessageHandler` 是**配置级**的，不是脚本级的：任何被这个 WKWebView 加载的页面
+都能 `window.webkit.messageHandlers.nativeBridge.postMessage(...)`，不需要我们注入的桥对象。
+而我们注入的那个对象只管"主 frame 用起来方便"，它不构成权限边界。
+
+所以在 `didReceive` 最前面加了一道校验，放行条件只有两个：
+
+- host 在 `ShellSettings.effectiveDomains` 里（用户配置的线路，自定义优先）；
+- host 是**用户主动加载过**的（工具箱换线路 / 「载入任意 URL」），记在
+  `ShellViewController.manualHosts`。
+
+**刻意不读 `webView.url.host`** —— 那个值会被页面自己的跳转改写，
+恶意页面跳一次就把自己写进白名单，校验等于没做。这条是这个改动里最容易写错的地方。
+
+允许同后缀子域（`m.souju.ai` 命中 `souju.ai`）：站点把页面放子域是常态，同属一个运营方。
+空 host 一律拒绝——桥只在主 frame 注入，真实站点页面不会产生空 origin。
+
+**没有收窄 ATS**。`NSAllowsArbitraryLoads` 仍然开着，因为 `DownloadManager` 用的是
+URLSession，关掉它会让 HTTP 源的分片静默下载失败——那是核心功能，比这个风险更伤人。
+真正的边界是上面的 origin 校验，它挡的是"谁能调桥"，与传输层是否明文无关。
 
 ---
 
@@ -592,6 +629,16 @@ script-src 'self' https:            → 没有 unsafe-inline / unsafe-eval
 15. **这张卡的元信息比设计稿少**。只有「大类 · 更新至第 N 集」，没有单集时长、没有细分类型
     （"古装轻喜"那类），因为站点日历项里就没有这些字段。想补只能去请求详情页，
     那是一张卡换一次网络往返，不值得。
+16. **皮肤自检只验两个信号**：CSS 变量有没有值（`--bg` / `--paper`）、当前路由的锚点在不在
+    （首页验 `.movie-composer-root`，全站验 `nav, .app-primary-bottom-nav`）。
+    它抓得住"整站改版"和"样式表没生效"，抓不住"某一个区块的选择器变了"——
+    那种局部失效仍然只能靠肉眼。结论在工具箱 → 诊断 → 皮肤自检，绿点=命中，红点=缺失。
+    自检有 800ms 启动宽限，且同一路由的同一条结论只上报一次（`sync` 由 MutationObserver 驱动，
+    每 200ms 会跑一遍，不挡的话日志会被同一条刷满）。
+17. **来源校验会拦掉第三方页面的桥**。站点如果某天把登录/支付改成跳第三方域，
+    那个页面调桥会被拒（`bridge` 日志里能看到 `拒绝来自 https://...`）。
+    这是预期行为——第三方页面不该拿原生能力。真要放行，就在工具箱里手动载入一次那个域名
+    （会记进 `manualHosts`）。
 
 ---
 
