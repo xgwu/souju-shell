@@ -72,8 +72,26 @@
     } catch (e) { /* CustomEvent 不可用时静默降级 */ }
   };
 
+  /* isAvailable 刻意写 false：站点 native-environment 的 i() 读到 false 会把整个
+   * 桥对象当成「不存在」，从而把所有请求都按浏览器处理。
+   *
+   * 为什么必须这样（2026-11-08 实机定位「AI 搜索：会话没有打开成功」）：
+   * 站点 movie-card-runtime 的 Ct() 用 owner 字段决定会话归属：
+   *     owner = kind ∈ {native_v3, native_project_jwt_v1} ? "native"
+   *           : 有 state ? (rt(state) ? "web" : "unavailable")
+   *           : 有桥 ? "unavailable" : "web"
+   * 我们只实现了 shell./playback.，没有 auth.getState / auth.restoreSession，
+   * 于是桥被判定为 legacy_no_auth，两次 auth 探测都回 NOT_IMPL → kind 变成
+   * restore_failed 且没有 state → rt() 为假 → owner = "unavailable"。
+   * 之后所有 auth:"session" 的请求（/v1/threads 等）在发出去之前就被
+   * Uo() 抛成「会话尚未就绪」，页面只显示一句「连接失败，请稍后重试」。
+   * 站点那条 createAnonymous 分支（POST /v1/users/anonymous）也就永远走不到。
+   * 让站点以为这是普通浏览器后，它会自己建匿名会话，AI 搜索、收藏、评论全部恢复。
+   *
+   * 我们自己的代码（tv-skin.js / tv-overlay.js）只读 .call，不读 isAvailable，
+   * 所以壳层的 native 播放、手机输入、远程配置都不受影响。 */
   window.H5ShellNativeBridge = {
-    isAvailable: true,
+    isAvailable: false,
     platform: 'android',
     version: VERSION,
     call: call,
@@ -81,16 +99,10 @@
     __pendingCount: function () { return Object.keys(pending).length; }
   };
 
-  /* 站点 native-environment 会检查 window.AiMovieAndroidBridge.postMessage 是否为函数，
-   * 用来判定「Android 原生壳」。它并不通过这个对象做 RPC，但补齐能让环境判定稳定。 */
-  window.AiMovieAndroidBridge = {
-    postMessage: function (payload) {
-      try {
-        if (typeof payload === 'string') { post(JSON.parse(payload)); }
-        else if (payload && typeof payload === 'object') { post(payload); }
-      } catch (e) { /* 只作环境标记，失败不影响主桥 */ }
-    }
-  };
+  /* 曾经为了「让环境判定稳定」挂过 window.AiMovieAndroidBridge —— 恰恰是它让
+   * 站点 native-environment 的 s() 返回 true（`typeof postMessage == "function"`），
+   * 把上面 isAvailable:false 的效果抵消掉。站点对这个对象只有这一处用途，
+   * 因此这里不再暴露。 */
 
   /* Chrome 83 缺失的运行时 API。站点首屏没用到，但懒加载分片里有真实调用：
    * Array.at(6 处，追剧日历) / String.replaceAll(1) / crypto.randomUUID(1)。

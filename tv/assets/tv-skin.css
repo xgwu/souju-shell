@@ -121,12 +121,54 @@ html[data-tv-skin="on"] .app-primary-nav-link {
      保留 1px 宽度而不是 border:0，否则选中项比兄弟窄 2px，文字会左右抖一下。 */
   border-color: transparent !important;
   color: #BCB9B3 !important;
+  /* 下划线用 ::after 绝对定位画，不占布局：改 border-bottom 会让这一项
+     比兄弟高 2px，焦点每移动一次菜单就抖一下。 */
+  position: relative !important;
+  transition: color 120ms ease, transform 120ms ease !important;
 }
+
+/* 阶段 10：下划线跟着焦点走。
+   旧版把 3px 橙线绑在 .is-active（站点按路由给的类）上，而站点在电视上
+   始终认为当前页是「首页」，于是这条线一直钉在第一个菜单项 ——
+   焦点明明在「片单」，下划线还在「首页」下面。
+   现在路由态只负责「字亮一点」，下划线完全由焦点类驱动。 */
 html[data-tv-skin="on"] .app-primary-nav-link.is-active,
 html[data-tv-skin="on"] .app-primary-nav-link[aria-current="page"] {
   color: #F2F1ED !important;
   background: transparent !important;
-  border-bottom: 3px solid #FF6B42 !important;
+  border-bottom-color: transparent !important;
+}
+
+/* 焦点态：不要焦点环、不要橙底（JS 侧已不再给导航项写 inline 环，
+   这里再把 focus.css 的兜底规则压掉），只留下划线 + 提亮 + 轻微放大。 */
+html[data-tv-skin="on"] .app-primary-nav-desktop .tv-focused,
+html[data-tv-skin="on"] .app-primary-nav-desktop .tv-focused:hover {
+  outline: none !important;
+  outline-color: transparent !important;
+  outline-width: 0 !important;
+  box-shadow: none !important;
+  background: transparent !important;
+  border-color: transparent !important;
+}
+html[data-tv-skin="on"] .app-primary-nav-link.tv-focused {
+  color: #FFFFFF !important;
+  /* 放大用 transform 而不是 font-size：改字号会重排后面的菜单项。
+     origin 定在左下，放大后文字基线与下划线都还贴在同一行。 */
+  transform: scale(1.1);
+  transform-origin: left bottom;
+  font-weight: 700 !important;
+  text-shadow: 0 0 22px rgba(255, 107, 66, 0.55);
+}
+html[data-tv-skin="on"] .app-primary-nav-link.tv-focused::after {
+  content: '' !important;
+  position: absolute;
+  left: 2px;
+  right: 2px;
+  bottom: -4px;
+  height: 3px;
+  border-radius: 2px;
+  background: #FF6B42;
+  box-shadow: 0 0 14px rgba(255, 107, 66, 0.75);
 }
 
 /* ── 4. 主内容区 / 安全区 ────────────────────────────────────────

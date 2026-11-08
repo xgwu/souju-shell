@@ -193,6 +193,49 @@
       try {
         if (u && u.indexOf('/v1/playback/resolve/') >= 0) { dpOnResolve(p); }
       } catch (e) {}
+      /* AI 搜索「会话没有打开成功」的取证：站点把 /v1/threads 的错误吞成了
+         一句「连接失败，请稍后重试」，真原因（401 签名 / 403 权限 / 超时）
+         只在响应里。这里只记失败与 thread 创建，正常请求不刷日志。 */
+      try {
+        if (u && u.indexOf('/v1/') >= 0) {
+          p.then(function (r) {
+            if (r.status >= 400) {
+              var f = { url: String(u).slice(0, 120), status: r.status };
+              try {
+                r.clone().text().then(function (t) {
+                  f.body = String(t || '').replace(/\s+/g, ' ').slice(0, 240);
+                  log('TVAPI_FAIL', f);
+                })['catch'](function () { log('TVAPI_FAIL', f); });
+              } catch (e3) { log('TVAPI_FAIL', f); }
+            }
+          }, function (err) {
+            log('TVAPI_ERR', { url: String(u).slice(0, 120), error: String((err && err.message) || err) });
+          });
+        }
+      } catch (e) {}
+      try {
+        if (u && u.indexOf('/v1/threads') >= 0) {
+          var meta = {
+            url: u, method: ((b && b.method) || (a && a.method) || 'GET'),
+            req: String((b && typeof b.body === 'string' ? b.body : '') || '').slice(0, 300),
+            t0: Date.now()
+          };
+          p.then(function (r) {
+            meta.status = r.status;
+            meta.ms = Date.now() - meta.t0;
+            try {
+              r.clone().text().then(function (t) {
+                meta.body = String(t || '').replace(/\s+/g, ' ').slice(0, 400);
+                log('TVTHREAD', meta);
+              })['catch'](function () { log('TVTHREAD', meta); });
+            } catch (e2) { log('TVTHREAD', meta); }
+          }, function (err) {
+            meta.error = String((err && err.message) || err);
+            meta.ms = Date.now() - meta.t0;
+            log('TVTHREAD', meta);
+          });
+        }
+      } catch (e) {}
       return p;
     };
   }
@@ -731,7 +774,16 @@
     apiGet('/v1/playback/resolve/' + e.token + '?view=compact').then(function (j) {
       if (!dpActive || gen !== dpLineGen || dpPhase !== 'switch') { return; }
       var lines = dpPickLines(j);
-      if (!lines.length) { throw new Error('no-line'); }
+      if (!lines.length) {
+        /* resolve 200 但挑不出可播线路：多半是该集只有官方线路（登录才给）
+           或站点把第三方线路标了 minimum_user_level>0。记下原始数量，
+           便于在日志里区分「线路全死」和「根本没给」。 */
+        var raw = (j && (j.line_options || j.lines || j.options)) || [];
+        var first = raw[0] ? JSON.stringify(raw[0]) : '';
+        log('TVDP_NO_LINES', { raw: raw.length,
+          first: first.replace(/\\/g, '').slice(0, 180) });
+        throw new Error('no-line');
+      }
       return dpBestLine(lines).then(function (ok) {
         if (!dpActive || gen !== dpLineGen || dpPhase !== 'switch') { return; }
         dpChanBusy = false;
@@ -766,7 +818,20 @@
 
   function doPickDom(i, autoPlay) {
     var e = epList[i];
-    if (!e || !e.el) { return; }
+    if (!e) { return; }
+    if (!e.el) {
+      /* 占位清单（自建通道用 detail 集数伪造的「第N集」）没有 DOM 元素。
+         旧版在这里静默 return，调用方（dpOwnEpisode 失败兜底）以为已经交接，
+         遮罩就永远停在「正在切换剧集」。改成等站点把选集渲染出来（最多 10s），
+         等不到就撤遮罩收会话并明说，不让用户对着转圈猜。 */
+      log('TVEPISODE', { pick: i, label: e.label, via: 'dom-wait' });
+      findEpEl(e.label, 25, function (el) {
+        if (el) { e.el = el; doPickDom(i, autoPlay); return; }
+        dpReset();
+        toast('这一集暂时切不过去，请退出后重新进入');
+      });
+      return;
+    }
     var prev = playUrl || currentMedia();
     var before = mediaUrls.slice(0, 8);
     try { e.el.click(); } catch (err) {}
@@ -821,7 +886,10 @@
       if (Date.now() - start > timeoutMs) {
         var tv = q('video');
         if (tv) { try { tv.muted = false; } catch (e3) {} }
-        toast('这一集地址还没出来，稍后可再按播放');
+        /* 旧版只 toast 不撤遮罩：dpWait 的遮罩要等 3 分钟自动超时，
+           用户得对着「正在切换剧集」干瞪眼两分半。现在立刻交还页面。 */
+        dpReset();
+        toast('这一集地址还没解析出来，已交回站点页面，可按 MENU 再试');
         return;
       }
       setTimeout(poll, 500);
@@ -1501,6 +1569,11 @@
     })['catch'](function (e) {
       dpChanBusy = false;
       log('TVDP_CHANNEL_FAIL', { note: String(e && e.message || e).slice(0, 40), ms: Date.now() - t0 });
+      /* 这里必须保持静默：no-line 不等于播不了。实测 2026-11-08 第8集
+         自建通道 no-line（resolve 只给 1 条官方线路），但站点自己的
+         resolve-line 流程 13.5s 后照样拿到直链 m3u8（43.248.128.134
+         的官方 CDN），dpTick 嗅探到就正常起播了。任何「提前判死」
+         都会掐死这条能走通的路。3 分钟超时 + TVDP_SLOW 提示兜底。 */
     });
   }
 

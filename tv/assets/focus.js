@@ -111,9 +111,40 @@
 
   /** 海报卡 overflow:hidden 会裁掉环 → cardOf() 拿到的卡片打标记，
    *  CSS 里改成 overflow:visible + 整卡放大。 */
+  /** 元素是否属于「固定在视口上的壳层」（顶部导航 / 工具栏）。
+   *  这些元素 position:fixed，页面滚多远它们都在视口顶上，于是 nearest()
+   *  永远认为它们「最近」。 */
+  function fixedHosts() {
+    return document.querySelectorAll(
+      '.app-primary-nav-desktop,.tv-toolbar,[data-tv-fixed]');
+  }
+
+  function inHost(el, hosts) {
+    if (!hosts) { return false; }
+    for (var i = 0; i < hosts.length; i++) {
+      if (hosts[i] === el || (hosts[i].contains && hosts[i].contains(el))) { return true; }
+    }
+    return false;
+  }
+
+  /** 顶部导航的焦点态不走焦点环：4px 环 + 10px 光晕套在 26px 文字上，
+   *  看起来就是一块橙色底（用户原话「背景橙色不好看」）。导航改用
+   *  CSS 的下划线 + 提亮 + 轻微放大，由 .tv-focused 类驱动。 */
+  function isNavLink(el) {
+    try {
+      return !!(el && el.closest && el.closest('.app-primary-nav-desktop'));
+    } catch (e) { return false; }
+  }
+
   function applyStyle(el) {
     clearRings();
-    /* 环与放大都落到卡片外壳上（没有卡片就是元素自己）。 */
+    /* 环与放大都落到卡片外壳上（没有卡片就是元素自己）。
+       导航项不参与：只加类，让 tv-skin.css 画下划线。 */
+    if (isNavLink(el)) {
+      if (el.classList) { el.classList.add(FOCUS_CLASS); }
+      styled.push(el);
+      return;
+    }
     var card = cardOf(el);
     var target = card || el;
     var saved = {};
@@ -313,6 +344,14 @@
    */
   function nearest(from, dir, list) {
     var c = center(from), best = null, bestScore = Infinity;
+    /* 阶段 10 修复「按上键先把焦点弹到菜单栏」：
+       顶部导航是 position:fixed，无论页面滚到哪里都贴在视口顶上，于是从
+       海报墙上按 UP 时它总以「dy 最小」胜出。焦点落到导航后 reveal() 又
+       把这个固定元素当成视口外元素，每按一次 UP 就把页面往上滚 88px ——
+       用户看到的现象正是「焦点先跳回菜单栏，然后页面才开始滚」。
+       页面没回到首屏时，纵向移动一律跳过固定层，先把内容滚到顶。 */
+    var vertical = (dir === 'up' || dir === 'down');
+    var hosts = (vertical && pageScrollTop() > 12) ? fixedHosts() : null;
     /* 阶段 7 修复：源是「宽幅条」时（今晚首选 1214px），纵向移动必须**距离优先**。
        旧打分 primary + cross*2.6 里侧向占 2.6 倍，于是横幅下面那排「继续观看」
        （dy=184、dx=151 → 578）会输给再往下 164px 的日历日轴
@@ -323,6 +362,7 @@
     for (var i = 0; i < list.length; i++) {
       var el = list[i];
       if (el === from) { continue; }
+      if (hosts && inHost(el, hosts)) { continue; }
       var t = center(el);
       var dx = t.x - c.x, dy = t.y - c.y;
       var primary, cross;
@@ -470,10 +510,14 @@
 
   /** 诊断用：站点把滚动放在 .movie-page-body 上，
    *  document.scrollingElement.scrollTop 恒为 0（旧版日志因此一直是 scrollY:0）。 */
-  function pageScrollTop() {
+  function pageScroller() {
     var s = document.querySelector('.movie-page-body');
-    if (s) { return Math.round(s.scrollTop); }
-    return Math.round(window.pageYOffset || 0);
+    if (s) { return s; }
+    return document.scrollingElement || document.documentElement;
+  }
+
+  function pageScrollTop() {
+    return Math.round(pageScroller().scrollTop || 0);
   }
 
   /** 原生按键唯一入口。返回 JSON 供 evaluateJavascript 回传取证。 */
@@ -505,6 +549,14 @@
                         action === 'left' || action === 'right')) {
       to = nearest(from, action, list);
       if (to) { setFocus(to); note = 'moved'; }
+      else if (action === 'up' && pageScrollTop() > 0) {
+        /* 焦点已经在内容区最上面一排，但页面还没回到首屏。
+           这时不抢焦点（否则又是旧版那个「先跳菜单栏」），
+           先把页面往回滚一屏的 40%；滚到 scrollTop=0 之后，
+           nearest() 不再排除 fixed 壳层，下一按 UP 才落到菜单栏。 */
+        scrollBy(pageScroller(), -Math.round(window.innerHeight * 0.4));
+        note = 'scroll-top';
+      }
       else { note = 'edge'; }
     } else if (!from && list.length) {
       // 第一次按方向键：懒聚焦到第一个候选，不抢站点初始化时的默认焦点。

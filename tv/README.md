@@ -1,10 +1,11 @@
-# 搜剧 AI 电视版 · 阶段 1~9 工程
+# 搜剧 AI 电视版 · 阶段 1~10 工程
 
-**当前状态**：`0.9.3` / build 14 / 377KB —— WebView 壳 + 遥控器焦点引擎 + TV 版式皮肤 +
+**当前状态**：`0.10.1` / build 16 / 381KB —— WebView 壳 + 遥控器焦点引擎 + TV 版式皮肤 +
 手机扫码输入 + 原生播放器 + 选集面板 / 进度回写 / 登录入口 / 远程线路配置 +
 首屏揭幕门 / 下划线导航 / 紧凑主推条 / 首屏排序 / 焦点放大 / 滚动补间 +
 首屏取舍（只留继续观看 + 海报墙）/「追剧」菜单 / 点海报直进全屏播放器 +
-**自建签名通道（点海报 1.5 秒起播）** + 选集焦点态与「当前集」分层，
+**自建签名通道（点海报 1.5 秒起播）** + 选集焦点态与「当前集」分层 +
+**播放器 bar 自动隐藏 / 上键回首屏不跳菜单 / 导航下划线跟随焦点 / AI 搜索修复**，
 已装进雷鸟鹤7 Pro 75R675C 实机验证。
 自签名证书 30 年有效，装一次永久可用，没有 iOS 版那套 7 天续签。
 
@@ -15,6 +16,9 @@
 `docs/tv-stage9-sheet-focus.png`（焦点＝当前集第 4 集）、
 `docs/tv-stage9-sheet-moved.png`（焦点移到第 6 集，第 4 集橙底已去掉、只剩描边）、
 `docs/tv-stage9-sheet-after-pick.png`（换集后重开，`当前 第6集`）。
+阶段 10 三张：`docs/tv-stage10-nav-focus.png`（导航焦点态：白字 + 下划线，无橙底）、
+`docs/tv-stage10-nav-moved.png`（下划线跟着焦点走到「追剧」）、
+`docs/tv-stage10-player-bars.png`（按 OK 后顶栏剧名 + 底栏按键说明重新出现）。
 完整方案与实测数据：`docs/tv-feasibility.md`、`docs/tv-webview-capabilities.json`。
 
 ## 目录
@@ -599,3 +603,78 @@ if (location.pathname !== lastPath) {
        PLAYER_OPEN ep=5/8 → PLAYING duration=2784083 video=1920x1080
        再开面板: SHEET_OPEN ep=5，标题「当前 第6集」，只有第6集橙底
 ```
+
+## 阶段 10：四条沙发反馈（0.10.1 / build 16）
+
+用户实机用出来的四条体验问题，全部当轮修复、当轮实机验证。
+
+### 1. 播放器顶栏（剧名）和底栏（按键说明）自动隐藏
+
+旧版两条 bar 永久压在画面上下沿。改为：进播放 **4 秒后淡出**，之后任何按键
+（OK / 方向 / 音量 / 播放暂停）都会重新亮出并重开倒计时；bar 隐藏时第一下 OK
+只负责唤出 bar、不顺手暂停（画面突然停住很意外，再按一下才播放/暂停）。
+选集面板打开期间 bar 强制隐藏，关面板重新亮出。报错时 bar 常显不倒计时。
+日志：`BARS 显示/隐藏`（实测起播后整 4.0s 触发隐藏）。
+
+### 2. 首页按上键先回首屏、再上菜单栏
+
+根因：顶部导航 `position:fixed`，无论滚多远都贴在视口顶上，`nearest()` 永远
+认为它「最近」—— 焦点先跳菜单栏，`reveal()` 又把这个视口外元素当目标，
+每按一次上键页面滚 88px，看起来就是「先跳菜单，页面才开始滚」。
+修复（focus.js）：
+
+- 页面没回到顶（`.movie-page-body` scrollTop > 12）时，纵向移动一律跳过
+  fixed 壳层（导航/工具栏），焦点只在内容里走；
+- 焦点已在最上面一排但页面没到顶时，按上键不抢焦点，先把页面往回滚
+  40% 屏高（`scroll-top`），滚到顶后下一按才落到菜单栏。
+
+实测（scrollY 1378 起连续按上）：焦点逐行走内容 → scrollY 一路降到 0 →
+焦点上到「查看更多 / 账号」，全程没有一次先跳「首页」菜单项。
+
+### 3. 顶部菜单焦点态：去橙底、下划线跟随焦点、亮字放大
+
+- 旧版选中项有 18% 橙底（用户原话「不好看」）；现在导航项**不走焦点环**：
+  `applyStyle()` 对 `.app-primary-nav-desktop` 内的元素只加 `.tv-focused` 类，
+  CSS 画「3px 橙色下划线（::after 绝对定位，不占布局）+ 白字 + 700 加粗 +
+  scale(1.1) + 橙色 text-shadow」，其余项 `#BCB9B3` 暗灰。
+- 旧版下划线绑在站点的 `.is-active`（按路由算），站点在电视上始终认为当前页
+  是首页，线永远钉在第一项。现在下划线**完全由焦点类驱动**，路由态只管字亮。
+- 站点原生给的 1px 青色选中框压成透明（保留 1px 宽度防抖动）。
+
+### 4. AI 搜索「会话没有打开成功」（iOS 版同样存在）
+
+根因在壳层伪装得**太像**原生 App：bridge.js 曾把 `isAvailable` 写成 true 并挂了
+`window.AiMovieAndroidBridge`。站点 native-environment 据此判定「原生壳」，
+于是它的会话归属逻辑走 `owner` 分支：桥存在但没有 `auth.getState /
+auth.restoreSession` → 两次 auth 探测回 NOT_IMPL → `kind = restore_failed` →
+`owner = "unavailable"` → 所有 `auth:"session"` 的请求（`POST /v1/threads` 等）
+**发出去之前**就被抛成「会话尚未就绪」，页面只显示「连接失败，请稍后重试」，
+站点自己那条「创建匿名会话（POST /v1/users/anonymous）」的分支永远走不到。
+修复：`isAvailable: false` + 不再暴露 `AiMovieAndroidBridge`，让站点按普通
+浏览器处理 —— 它自己会建匿名会话，搜索/收藏/评论全部恢复。
+壳层自己的代码只读 `.call`，native 播放、手机输入、远程配置不受影响。
+取证链路（均为实机日志）：`TVTHREAD`（threads 请求/响应体）、`TVAPI_FAIL`
+（任何 /v1/ 4xx/5xx 的状态码 + 响应体）。
+
+### 换集兜底补强（回归时发现）
+
+- `dpOwnEpisode` 失败退 `doPickDom` 时，占位清单（自建通道伪造的「第N集」）
+  没有 DOM 元素，旧版静默 return，遮罩永久停在「正在切换剧集」。现在
+  `doPickDom` 遇 `el:null` 会用 `findEpEl` 等站点渲染（最多 10s），等不到才
+  `dpReset()` + toast 明说。
+- `waitForMediaAndPlay` 20s 超时从「只 toast」改为「撤遮罩交还站点页面」，
+  不再让用户对着遮罩干等 3 分钟。
+- 教训（写进 `dpFastChannel` 注释）：自建通道 `no-line` **不等于播不了** ——
+  实测第 8 集自建通道 0 条第三方线路，但站点自己的 resolve-line 流程 13.5s
+  拿到官方 CDN 直链正常播出。任何「提前判死」都会掐死这条活路。
+
+### 实测（0.10.1 / build 16 / 381KB，鹤7 Pro）
+
+| 项 | 结果 |
+|---|---|
+| bar 隐藏 | `PLAYING` 后整 4.0s `BARS 隐藏`；按 OK 立即重现（截图） |
+| 上键回滚 | scrollY 1378→0 全程内容行走，不先跳菜单栏 |
+| 导航焦点 | `docs/tv-stage10-nav-focus.png`：白字+下划线，无橙底；右移后下划线跟走 |
+| AI 搜索 | `POST /v1/threads` 201，AI 回复 + 影片卡片正常出图 |
+| 换集正向 | 第 1 集：站点 DOM 路径 6.3s 起播（伪装 .jpg 真视频正确识别） |
+| 换集兜底 | 第 7 集（自建通道 no-line）：5.4s 经站点路径起播，遮罩不卡 |

@@ -85,6 +85,17 @@ public class PlayerActivity extends Activity
     private List<String> episodes = new ArrayList<>();
     private int episodeIndex = -1;
 
+    /** 顶栏（剧名）与底栏（按键说明）的常显时长。
+     *
+     * 旧版两条 bar 永久占着画面上下沿：片名和「← → ±10s 上/下 音量」一直压在
+     * 视频上，看片时很碍事。现在进播放 4 秒后自动淡出，按 OK 重新唤出。
+     * 4 秒是「够读完一行按键说明」和「不长时间挡画面」的折中。 */
+    private static final long BAR_HIDE_MS = 4000;
+
+    private final Runnable hideBars = new Runnable() {
+        @Override public void run() { setBarsVisible(false); }
+    };
+
     public static Intent intent(Context ctx, String url, String title, long positionMs,
                                 String[] episodes, int episodeIndex) {
         Intent i = new Intent(ctx, PlayerActivity.class);
@@ -164,7 +175,50 @@ public class PlayerActivity extends Activity
         if (episodes.size() > 0) { buildSheet(root); }
 
         if (url.isEmpty()) { fail("没有可播放的地址"); }
-        else { updateBar("正在准备播放…"); }
+        else { updateBar("正在准备播放…"); showBars(); }
+    }
+
+    // MARK: - 顶栏 / 底栏显隐
+
+    /** 显示两条 bar 并重置自动隐藏的计时。
+     *  选集面板打开期间由面板独占画面，不抢着显示。 */
+    private void showBars() {
+        if (sheetVisible()) { return; }
+        barVisible = true;
+        fadeBar(titleView, true);
+        fadeBar(barView, true);
+        handler.removeCallbacks(hideBars);
+        // 还没 prepared 时先不启动计时，等真正起播再开始，避免「准备中」一闪而过
+        if (prepared) { handler.postDelayed(hideBars, BAR_HIDE_MS); }
+    }
+
+    private void setBarsVisible(boolean visible) {
+        if (sheetVisible()) {
+            if (titleView != null) { titleView.setVisibility(View.GONE); }
+            if (barView != null) { barView.setVisibility(View.GONE); }
+            return;
+        }
+        barVisible = visible;
+        fadeBar(titleView, visible);
+        fadeBar(barView, visible);
+        BridgeLog.i("player", "BARS " + (visible ? "显示" : "隐藏"));
+    }
+
+    /** 淡入/淡出。GONE 只在淡出动画结束后才设，避免动画跑到一半被 Visibility 掐断。 */
+    private void fadeBar(final View v, final boolean show) {
+        if (v == null) { return; }
+        v.animate().cancel();
+        if (show) {
+            v.setVisibility(View.VISIBLE);
+            if (v.getAlpha() < 1f) { v.animate().alpha(1f).setDuration(140).start(); }
+        } else {
+            v.animate().alpha(0f).setDuration(220).withEndAction(new Runnable() {
+                @Override public void run() {
+                    if (!barVisible && !sheetVisible()) { v.setVisibility(View.GONE); }
+                    v.setAlpha(1f);
+                }
+            }).start();
+        }
     }
 
     private static List<String> parseEpisodes(String json) {
@@ -330,6 +384,7 @@ public class PlayerActivity extends Activity
         if (sheet == null) { return; }
         if (sheetVisible()) { hideSheet(); return; }
         sheet.setVisibility(View.VISIBLE);
+        handler.removeCallbacks(hideBars);
         titleView.setVisibility(View.GONE);
         barView.setVisibility(View.GONE);
         // 滚动到当前集并让它拿到焦点，避免从第 1 集开始找
@@ -363,8 +418,10 @@ public class PlayerActivity extends Activity
     private void hideSheet() {
         if (sheet == null) { return; }
         sheet.setVisibility(View.GONE);
-        titleView.setVisibility(View.VISIBLE);
-        barView.setVisibility(barVisible ? View.VISIBLE : View.GONE);
+        // 关面板后把两条 bar 重新亮出来，并重新开始自动隐藏倒计时
+        if (titleView != null) { titleView.setAlpha(1f); }
+        if (barView != null) { barView.setAlpha(1f); }
+        showBars();
         BridgeLog.i("player", "SHEET_CLOSE");
     }
 
@@ -417,6 +474,8 @@ public class PlayerActivity extends Activity
             return;
         }
         handler.post(progressTick);
+        // 起播这一刻才开始算自动隐藏：准备阶段的「正在准备播放…」也能看到
+        showBars();
     }
 
     @Override
@@ -439,6 +498,7 @@ public class PlayerActivity extends Activity
             return;
         }
         updateBar("播放结束 · 按返回键退出");
+        showBars();
     }
 
     // MARK: - 遥控器
@@ -466,27 +526,34 @@ public class PlayerActivity extends Activity
             case KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE:
             case KeyEvent.KEYCODE_MEDIA_PLAY:
             case KeyEvent.KEYCODE_MEDIA_PAUSE:
+                /* 两条 bar 已经隐藏时，第一下 OK 只负责把它们叫回来，
+                   不顺手暂停 —— 用户的诉求是「按 OK 才重新显示」，
+                   此时按一下画面就停住会很意外。再按一下才播放/暂停。 */
+                if (!barVisible) { showBars(); return true; }
                 togglePlay();
                 return true;
             case KeyEvent.KEYCODE_DPAD_LEFT:
             case KeyEvent.KEYCODE_MEDIA_REWIND:
                 seek(-10000);
+                showBars();
                 return true;
             case KeyEvent.KEYCODE_DPAD_RIGHT:
             case KeyEvent.KEYCODE_MEDIA_FAST_FORWARD:
                 seek(10000);
+                showBars();
                 return true;
             case KeyEvent.KEYCODE_DPAD_UP:
                 volume(AudioManager.ADJUST_RAISE);
+                showBars();
                 return true;
             case KeyEvent.KEYCODE_DPAD_DOWN:
                 volume(AudioManager.ADJUST_LOWER);
+                showBars();
                 return true;
             case KeyEvent.KEYCODE_MENU:
                 if (episodes.size() > 0) { toggleSheet(); return true; }
-                barVisible = !barVisible;
-                barView.setVisibility(barVisible ? View.VISIBLE : View.GONE);
-                titleView.setVisibility(barVisible ? View.VISIBLE : View.GONE);
+                if (barVisible) { setBarsVisible(false); handler.removeCallbacks(hideBars); }
+                else { showBars(); }
                 return true;
             default:
                 return true;   // 播放器期间不把任何键漏给底层 WebView
@@ -502,6 +569,8 @@ public class PlayerActivity extends Activity
         } catch (Throwable t) {
             BridgeLog.w("player", "TOGGLE_FAIL " + t.getMessage());
         }
+        // 暂停/播放都改了底栏文案，顺手把两条 bar 亮出来并重置倒计时
+        showBars();
     }
 
     private void seek(int deltaMs) {
@@ -564,6 +633,11 @@ public class PlayerActivity extends Activity
             errorView.setVisibility(View.VISIBLE);
         }
         updateBar(msg);
+        // 报错必须看得见：先把 bar 亮出来，也不排自动隐藏
+        handler.removeCallbacks(hideBars);
+        barVisible = true;
+        if (titleView != null) { titleView.setAlpha(1f); titleView.setVisibility(View.VISIBLE); }
+        if (barView != null) { barView.setAlpha(1f); barView.setVisibility(View.VISIBLE); }
     }
 
     /** 退出前把进度交回 H5：站点靠它更新「继续观看」。 */
