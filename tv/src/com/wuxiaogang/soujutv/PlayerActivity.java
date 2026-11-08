@@ -353,8 +353,9 @@ public class PlayerActivity extends Activity
         GradientDrawable d = new GradientDrawable();
         d.setCornerRadius(dp(10));
         if (focused) {
+            /* 0.10.2：用户反馈焦点上「背景提示 + 橙色方框」里方框多余 ——
+               焦点态只留橙底，不描边。「当前集」的描边保留，那是位置标记。 */
             d.setColor(0x44FF6B42);
-            d.setStroke(dp(2), 0xCCFF6B42);
         } else if (current) {
             d.setColor(0x14FFFFFF);
             d.setStroke(dp(2), 0x99FF6B42);

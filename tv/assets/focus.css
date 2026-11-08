@@ -1,21 +1,18 @@
 /* focus.css — 电视焦点态。Chromium 83 基线，只用 83 支持的特性。
  * 禁用清单：flex gap / aspect-ratio / :has() / :focus-visible / inset / content-visibility
- * 焦点环用 outline + box-shadow 自己画：DOM 的 :focus 在 TV 上默认不可见，
- * 这是「能看懂自己在哪」的唯一依据。
+ * 0.10.2：用户反馈焦点元素上「除了背景色提示还有个橙色方框，不好看也多余」。
+ * 焦点提示改为无框三层：卡片 scale(1.10) 放大（tv-skin.css）、暗色投影、
+ * 站点/皮肤自己的背景高亮。outline 写 none 是为了压掉站点 :focus 自带框；
+ * JS 侧（focus.js RING）会再写一份 inline !important，这里是样式表兜底。
  */
 
-/* 焦点环的主规则。JS 侧还会额外写 inline !important，这里是样式表兜底：
-   站点按钮带 .movie-button-secondary:focus 这类高特异性规则时，纯样式表可能输。 */
 html body .tv-focused {
-  outline: 3px solid #FF8A3D !important;
-  outline-color: #FF8A3D !important;
-  outline-offset: 3px !important;
-  /* 只写未加前缀的一条：Chrome 83 把 -webkit-box-shadow 与 box-shadow 当别名，
-     两条并存时 JS 的 removeProperty 清不干净，会留下擦不掉的橙色光晕。 */
-  box-shadow: 0 0 0 7px rgba(255, 138, 61, 0.25) !important;
+  outline: none !important;
+  outline-color: transparent !important;
+  outline-offset: 0 !important;
+  /* 只留暗色投影（深度感，不是框）；旧版 7px 橙色光晕已随橙框一起去掉 */
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.62) !important;
   border-radius: 6px;
-  /* 只过渡 box-shadow，不让 outline-color 渐变：焦点环必须即时可见，
-     否则按方向键的头 120ms 里用户看不清焦点落在哪。 */
   -webkit-transition: box-shadow 120ms ease;
   transition: box-shadow 120ms ease;
 }

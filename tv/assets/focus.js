@@ -27,10 +27,10 @@
   var lastFocusKey = '';
   var lastFocusPoint = null;
 
-  /* 焦点环必须写成 inline + !important。
+  /* 焦点样式必须写成 inline + !important。
    * 站点按钮带 `.movie-button-secondary:focus` 这类高特异性规则，会盖掉样式表里的
-   * `.tv-focused { outline: ... !important }` —— 实测三个按钮里两个分别显示成
-   * rgba(255,255,255,.9) 和 rgb(3,17,20)，只有第三个是橙色。
+   * `.tv-focused { ... !important }` —— 实测三个按钮里两个分别显示成
+   * rgba(255,255,255,.9) 和 rgb(3,17,20)。
    *
    * v0.4 修复「橙环残留」：旧版只用一个 savedEl/savedStyle 槽位存原值，
    * 站点重建卡片后 refind() 会对一个「还带着我们自己写进去的 inline 环」的元素
@@ -38,14 +38,20 @@
    * 于是每走过一个元素就永久留一圈橙色光晕（实机 60+ 个元素带残留 box-shadow）。
    * 现在改成：原值存在元素自己身上 + data-tv-ring 标记 + 每次按键全量清扫。
    * 刻意不写 -webkit-box-shadow：它在 Chrome 83 里与 box-shadow 互为别名，
-   * removeProperty 一个另一个还在，是最容易漏清理的一条。 */
+   * removeProperty 一个另一个还在，是最容易漏清理的一条。
+   *
+   * 0.10.2 用户反馈：「除了背景色提示以外，还有一个橙色的方框，不好看也多余」。
+   * 焦点提示改为三层、全部无框：卡片 scale(1.10) 放大（tv-skin.css）、
+   * 暗色投影（ depth，不是框）、站点/皮肤自己的背景高亮。
+   * outline 仍然要写（写 none）：站点按钮的 :focus 规则会自己画框，
+   * inline !important 的 none 正好压掉它。 */
   var RING_KEYS = ['outline', 'outline-offset', 'box-shadow'];
   var RING = {
-    'outline': '4px solid #FF8A3D',
-    'outline-offset': '3px',
-    /* 环 + 卡片投影一起写：焦点环是 inline !important，会盖掉样式表里
+    'outline': 'none',
+    'outline-offset': '0',
+    /* 只留暗色投影：焦点环是 inline !important，会盖掉样式表里
        给 [data-tv-focus-parent] 的 box-shadow，所以投影必须并进来。 */
-    'box-shadow': '0 0 0 10px rgba(255,138,61,0.28), 0 18px 40px rgba(0,0,0,0.62)'
+    'box-shadow': '0 18px 40px rgba(0,0,0,0.62)'
   };
   var styled = [];
 
