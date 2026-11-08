@@ -1,16 +1,20 @@
 # 搜剧 AI 电视版 · 阶段 1~9 工程
 
-**当前状态**：`0.9.1` / build 12 / 377KB —— WebView 壳 + 遥控器焦点引擎 + TV 版式皮肤 +
+**当前状态**：`0.9.3` / build 14 / 377KB —— WebView 壳 + 遥控器焦点引擎 + TV 版式皮肤 +
 手机扫码输入 + 原生播放器 + 选集面板 / 进度回写 / 登录入口 / 远程线路配置 +
 首屏揭幕门 / 下划线导航 / 紧凑主推条 / 首屏排序 / 焦点放大 / 滚动补间 +
 首屏取舍（只留继续观看 + 海报墙）/「追剧」菜单 / 点海报直进全屏播放器 +
-**自建签名通道（点海报 1.5 秒起播）**，
+**自建签名通道（点海报 1.5 秒起播）** + 选集焦点态与「当前集」分层，
 已装进雷鸟鹤7 Pro 75R675C 实机验证。
 自签名证书 30 年有效，装一次永久可用，没有 iOS 版那套 7 天续签。
 
 首屏实机截图：`docs/tv-stage8-home.png`（阶段 8 首屏）、
 `docs/tv-stage8-updates.png`（「追剧」周表页）、`docs/tv-stage8-directplay.png`
 （点海报后的起播遮罩）、`docs/tv-stage7-focus.png`（海报获焦）；阶段 3 / 7 的旧图保留做对比。
+选集面板三张（阶段 9.1，原生面板是普通 View，截得到）：
+`docs/tv-stage9-sheet-focus.png`（焦点＝当前集第 4 集）、
+`docs/tv-stage9-sheet-moved.png`（焦点移到第 6 集，第 4 集橙底已去掉、只剩描边）、
+`docs/tv-stage9-sheet-after-pick.png`（换集后重开，`当前 第6集`）。
 完整方案与实测数据：`docs/tv-feasibility.md`、`docs/tv-webview-capabilities.json`。
 
 ## 目录
@@ -248,6 +252,11 @@ MutationObserver 触发成 220ms 死循环；1.2k 宽卡按中心点算侧向偏
 12. 冷缓存下 chunk 预热（`<link rel=prefetch>`，首页 5 秒后最多 40 条）只省 0.39 秒
     （14.49s vs 14.10s）—— 瓶颈从来不在 chunk，而在等站点发 `resolve`。
     这段代码保留是为了暖二跳，不作为主要收益。
+13. **`epList` 不能跟着 pathname 变化清空**（`0.9.3` 已修，见「阶段 9.1」）：
+    直通播放时清单是自建通道在首页填好的，站点随后才 SPA 跳到 `/player/xxx`。
+    一清空，播放器里的换集就取不到那一集（`TVPICK eps:0`），遮罩永久停在
+    「正在切换剧集」。以后判断「是否换了片子」只能用 `collectEpisodes()` 有没有
+    新列表，不能用路径。
 
 ## 下一步
 
@@ -492,6 +501,9 @@ const KEY = "f39d73aa7a6426203cdee1ef17b31d3b7ea8c23f4c59c62a3a8aa0f39ee5e79d";
 | `TVWARM_COLLECT {"n"}` | 播放页停留 6s 后收集 chunk 列表并存 localStorage |
 | `TVWARM_PREFETCH {"n"}` | 首页停留 5s 后建 prefetch 链接（去重后） |
 | `TVPICK {"sec","idx","eps","tok"}` | 选集面板触发换集（`tok` = 该集 token 是否就绪） |
+| `TVPICK_RECOVER {"idx","id"}` | 换集时清单是空的，正在按 catalog id 重新拉取 |
+| `TVPICK_RECOVERED {"n","tok"}` | 清单补回来了，继续换集 |
+| `TVPICK_NOEP {"idx","note"}` | 补不回来，已撤遮罩收会话（不再卡在「正在切换剧集」） |
 
 ### 画面取证
 
@@ -516,3 +528,74 @@ I/player: PLAYING duration=1982493 video=1920x1080
 | **续播** | 「继续观看」卡片「上次看到 3:33」→ `pos=213000` 起播，集数取 `current_episode.sequence_index`（不再显示成第 1 集） |
 | **退出回写** | `ACTIVITY_RESULT reason=back pos=15200` → `TVDP_EXIT` → `TVPROGRESS {"synced":13,"from":0}` → `pathname="/"` |
 | **画面** | `PLAYING duration=1982493 video=1920x1080`（截图取不到，见上） |
+
+## 阶段 9.1：选集面板两处修复（0.9.3 / build 14）
+
+### ① 当前集背景一直是橙色，焦点移走也不消失
+
+反馈原话：「换集列表中当前播放的集背景一直是橙色，遥控器选其他集后，背景没有去掉。」
+
+根因在 `PlayerActivity.cellBg`：焦点态和「当前播放集」共用**同一套亮橙底**——
+
+```java
+// 旧代码：两个条件或在一起，同一个样式
+v.setBackground(cellBg(hasFocus || index == episodeIndex));
+```
+
+于是焦点移到第 6 集后，第 4 集（当前在播）仍然满足 `index == episodeIndex`，橙底留着，
+**屏幕上同时两格橙**，看起来像焦点没跟过去。
+
+改法：橙底只属于焦点，当前集改用橙色描边 + 标题行文字。
+
+| 状态 | 底色 | 描边 | 文字 |
+|---|---|---|---|
+| 焦点 | `0x44FF6B42` 亮橙 | 2dp `0xCCFF6B42` | `#F2F1ED` |
+| 当前播放集（未聚焦） | `0x14FFFFFF` 深灰（**和其它格一样**） | 2dp `0x99FF6B42` | `#FFD3C2` 淡橙 |
+| 其它 | `0x14FFFFFF` | 1dp `0x33FFFFFF` | `#F2F1ED` |
+
+标题行同时补一句「当前 第N集」（`选集 · 共 8 集 · 当前 第4集`），不靠颜色也能读出来。
+
+**实机验证（`0.9.3` / build 14）**：逐格采样格子底色（避开文字），焦点在第 4 集时
+只有第 4 集是 `(75,37,28)`，右移两格后第 4 集回到 `(29,30,33)`、只有第 6 集是 `(75,37,28)`；
+第 4 集左边框采到 `(157,68,46)`（橙描边），紧邻内侧 `(29,30,33)`（深灰底）。
+
+### ② 从「继续观看」起播后换集失效、遮罩卡在「正在切换剧集」
+
+修 ① 时顺手实测发现：从首页「继续观看」卡片起播，按 MENU 换集会卡死
+（`TVPICK {"idx":5,"eps":0,"tok":0}`，遮罩停在「正在切换剧集… 37s」，只能按返回）。
+
+根因在 `tick()`：
+
+```js
+if (location.pathname !== lastPath) {
+  lastPath = location.pathname;
+  epList = [];          // ← 路径一变就清空
+```
+
+自建通道在**首页**就把 8 集填好、原生播放器起播，随后站点自己 SPA 跳到 `/player/xxx` ——
+这一跳把清单清空了。原生面板里那 8 集是起播瞬间传进去的拷贝，所以面板看着正常，
+但换集时 `pickEpisode` 取不到那一集。
+
+点海报起播没暴露，是因为站点详情页会发 `resolve`，`dpOnResolve` 把清单补了回来。
+
+改法三处：
+
+1. `tick()` 不再直接清空，只打 `epPathMoved` 标记；
+   `openEpisodes()` 里才判断——DOM 有新列表就用新的，跨了页面且**不在直通会话里**才清空
+   （会话期间一律保留，换集就发生在那个时候）。
+2. `dpBegin()`（点海报开场）清一次 `epList`，否则 `dpFastChannel` 失败退回
+   `dpFastStart` 时会用到上一部片的残留清单（串片）。
+3. `pickEpisode()` 取不到剧集时不再只弹 toast：先用当前路径的 catalog id 把带 token 的
+   清单重新拉回来（`TVPICK_RECOVER`），拉不回来才 `dpReset()` 撤遮罩收会话
+   （`TVPICK_NOEP`）——无论如何都不会让用户对着转圈干等。
+
+**实机验证（同一路径，修改前 → 修改后）**：
+
+```
+改前:  TVPICK {"idx":5,"eps":0,"tok":0}   → 遮罩停在「正在切换剧集… 37s」，无后续
+改后:  TVPICK {"idx":5,"eps":8,"tok":8}
+       TVDP_OWN_EP {"ms":2623,"idx":5,"label":"第6集"}
+       TVDP_START {"note":"own-pick","waitedMs":2629}
+       PLAYER_OPEN ep=5/8 → PLAYING duration=2784083 video=1920x1080
+       再开面板: SHEET_OPEN ep=5，标题「当前 第6集」，只有第6集橙底
+```

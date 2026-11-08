@@ -37,6 +37,19 @@ done
 echo "=== 生成启动图标（纯标准库，无额外依赖）==="
 python3 "$ROOT/tools/make-tv-icon.py"
 
+# 版本号单一真源是 ShellConfig.java（App 内显示、日志、系统设置都认它）。
+# 之前只在 Java 里改、manifest 停在 0.5.0/5，装出来的包在系统设置里版本是错的，
+# 这里由脚本覆盖，避免再漂移。
+APP_VERSION="$(sed -n 's/.*APP_VERSION *= *"\([^"]*\)".*/\1/p' \
+  "$TV/src/com/wuxiaogang/soujutv/ShellConfig.java" | head -1)"
+APP_BUILD="$(sed -n 's/.*APP_BUILD *= *\([0-9]\{1,\}\).*/\1/p' \
+  "$TV/src/com/wuxiaogang/soujutv/ShellConfig.java" | head -1)"
+if [ -z "$APP_VERSION" ] || [ -z "$APP_BUILD" ]; then
+  echo "✗ 未能从 ShellConfig.java 解析 APP_VERSION / APP_BUILD" >&2
+  exit 1
+fi
+echo "=== 版本 ${APP_VERSION} / build ${APP_BUILD}（取自 ShellConfig.java）==="
+
 echo "=== 清理构建目录 ==="
 rm -rf "$OUT"
 mkdir -p "$OUT/classes" "$OUT/dex" "$OUT/gen"
@@ -53,6 +66,8 @@ echo "=== 2/6 aapt2 link（二进制 manifest + 资源 + assets）==="
   -A "$TV/assets" \
   --min-sdk-version 21 \
   --target-sdk-version 30 \
+  --version-code "$APP_BUILD" \
+  --version-name "$APP_VERSION" \
   --auto-add-overlay \
   --java "$OUT/gen"
 

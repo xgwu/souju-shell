@@ -45,8 +45,12 @@
   var toastTimer = null;
 
   /* 阶段 6 状态 */
-  var epList = [];            // [{label, el}]
+  var epList = [];            // [{label, el, token, number}]
   var epExpandedTried = false;
+  /** 路径变过但还没确认是不是换了片子。不能一发现路径变就清 epList ——
+      直通播放时清单是自建通道在首页填好的，站点随后才 SPA 跳到 /player/xxx，
+      这次跳转会把清单清掉，换集时 pickEpisode 拿不到那一集（见 tick）。 */
+  var epPathMoved = false;
   var armedField = '';        // '' | 'account' | 'password'
   var loginValues = { account: '', password: '' };
   var loginPolling = 0;
@@ -610,7 +614,16 @@
        渲染完，这时 epList 里放的是 detail 补的「第N集」占位（el 为 null），
        不能因为 DOM 还空就把它清掉，否则面板会变成「没有可切换的剧集」。 */
     var fresh = collectEpisodes();
-    if (fresh.length) { epList = fresh; }
+    if (fresh.length) {
+      epList = fresh;
+      epPathMoved = false;
+    } else if (epPathMoved && !dpActive) {
+      /* 跨过页面、站点又没渲染出任何剧集、而且当前不在直通会话里 ——
+         旧清单可能属于上一部片，清掉免得串片。直通会话进行中一律保留：
+         换集就发生在那个时候，清单是自建通道给的（见 tick 的注释）。 */
+      epList = [];
+      epPathMoved = false;
+    }
     /* 站点默认只挂 15 个「快速集」；完整目录要展开一次才进 DOM。
        展开按钮本身在电视上被我们的皮肤压到屏幕外，用户看不到闪烁。 */
     if (!fresh.length && !epExpandedTried) {
@@ -646,9 +659,51 @@
     })();
   }
 
+  /** 当前页面属于哪部片：/player/{id} 或 /detail/{id} 里的 id。 */
+  function curCatalogId() {
+    var m = location.pathname.match(/\/(?:player|detail)\/([^/?]+)/);
+    return m ? m[1] : '';
+  }
+
+  /** 换集时清单是空的 —— 不能只弹个 toast 就返回。
+      之前的表现：遮罩停在「正在切换剧集… 37s」一直转，用户只能按返回。
+      这里先用当前片的 catalog id 把带 token 的清单重新拉回来（同一个接口，
+      顺序一致，下标仍然对得上），再照常换集；真拉不回来才收会话。 */
+  function pickEpisodeRecover(i, autoPlay) {
+    var id = curCatalogId();
+    if (!id || !window.crypto || !crypto.subtle) { failPick(i, 'no-id'); return; }
+    var gen = dpLineGen;
+    log('TVPICK_RECOVER', { idx: i, id: id });
+    toast('正在重新获取剧集列表…');
+    apiGet('/v1/catalog/' + id + '/episodes?limit=48&offset=0').then(function (j) {
+      var arr = j.episodes || j.items || [];
+      if (!arr.length) { throw new Error('no-episodes'); }
+      if (gen !== dpLineGen) { return; }
+      epList = arr.map(function (x) {
+        return {
+          label: x.title || ('第' + x.number + '集'),
+          el: null, token: x.token, number: Number(x.number) || 0
+        };
+      });
+      epPathMoved = false;
+      log('TVPICK_RECOVERED', { n: epList.length, tok: epList.filter(function (x) {
+        return !!x.token; }).length });
+      pickEpisode(i, autoPlay);
+    })['catch'](function (err) {
+      failPick(i, String((err && err.message) || err).slice(0, 30));
+    });
+  }
+
+  /** 换集彻底失败：撤掉遮罩收会话，别让用户对着转圈干等。 */
+  function failPick(i, note) {
+    log('TVPICK_NOEP', { idx: i, note: note });
+    toast('剧集列表丢失，已退出选集');
+    if (dpActive && dpPhase === 'switch') { dpReset(); }
+  }
+
   function pickEpisode(i, autoPlay) {
     var e = epList[i];
-    if (!e) { toast('剧集已失效，请重新打开选集'); return; }
+    if (!e) { pickEpisodeRecover(i, autoPlay); return; }
     /* 有 token 就不必等站点把剧集按钮渲染出来（自建通道自己能解析）。 */
     if (!e.el && !e.token) {
       toast('正在准备 ' + e.label + '…');
@@ -1665,7 +1720,7 @@
       「第N集」标签（detail 往往已在站点缓存里，命中就是几毫秒），
       换集时再按序号去站点 DOM 里找真实按钮（见 pickEpisode）。 */
   function dpFetchEpLabels(cb) {
-    var m = location.pathname.match(/\/player\/([^/?]+)/);
+    var m = location.pathname.match(/\/(?:player|detail)\/([^/?]+)/);
     if (!m) { cb(null); return; }
     var done = false;
     var to = setTimeout(function () {
@@ -1824,6 +1879,10 @@
     var poster = img ? (img.currentSrc || img.getAttribute('src') || '') : '';
     dpSession = false;
     dpActive = false;
+    /* 新会话从干净的剧集清单开始：否则 dpFastChannel 失败退回 dpFastStart 时
+       会用上一部片残留的 epList（`epList.length ? epList : ...`），换集会串片。 */
+    epList = [];
+    epPathMoved = false;
     dpSet({ t: Date.now(), title: title, poster: poster, pos: dpCardPos(link) });   // 先把标题海报放进记录
     dpWait('resolve');
     /* 阶段 9：不等站点的播放器 UI 了 —— 自己带签名把 detail/episodes/resolve
@@ -1944,7 +2003,12 @@
     if (location.pathname !== lastPath) {
       lastPath = location.pathname;
       if (mode) { setMode(''); }
-      epList = [];
+      /* 这里**不能**直接 epList = []。实测：从「继续观看」卡片起播，自建通道
+         在首页就把 8 集填好、原生播放器起播，随后站点自己 SPA 跳到
+         /player/xxx —— 这一跳会把清单清空，用户在播放器里换集时
+         TVPICK 打出 eps:0，pickEpisode 找不到那一集，遮罩永远停在
+         「正在切换剧集…」。改成先打标记，等真要选集时再判断（openEpisodes）。 */
+      epPathMoved = true;
       epExpandedTried = false;
     }
     scanVideo();

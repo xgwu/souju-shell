@@ -199,8 +199,14 @@ public class PlayerActivity extends Activity
         int pad = dp(36);
         col.setPadding(pad, dp(28), pad, dp(20));
 
+        /* 当前集在格子上只用橙色描边标（底不再上色），所以标题行补一句
+           「当前 第8集」，不依赖颜色也能读出来。 */
+        String headText = "选集 · 共 " + episodes.size() + " 集";
+        if (episodeIndex >= 0 && episodeIndex < episodes.size()) {
+            headText += " · 当前 " + episodes.get(episodeIndex);
+        }
         TextView head = new TextView(this);
-        head.setText("选集 · 共 " + episodes.size() + " 集");
+        head.setText(headText);
         head.setTextColor(0xFFF2F1ED);
         head.setTextSize(TypedValue.COMPLEX_UNIT_SP, 22);
         head.setPadding(0, 0, 0, dp(14));
@@ -223,13 +229,13 @@ public class PlayerActivity extends Activity
                 grid.addView(row, rlp);
             }
             final int index = i;
-            Button b = new Button(this);
+            final Button b = new Button(this);
             b.setText(episodes.get(i));
             b.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
             b.setTextColor(0xFFF2F1ED);
             b.setAllCaps(false);
             b.setFocusable(true);
-            b.setBackground(cellBg(i == episodeIndex));
+            paintCell(b, i, false);
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0,
                     dp(58), 1f);
             lp.rightMargin = dp(10);
@@ -242,7 +248,7 @@ public class PlayerActivity extends Activity
             });
             b.setOnFocusChangeListener(new View.OnFocusChangeListener() {
                 @Override public void onFocusChange(View v, boolean hasFocus) {
-                    v.setBackground(cellBg(hasFocus || index == episodeIndex));
+                    paintCell(b, index, hasFocus);
                 }
             });
         }
@@ -280,17 +286,36 @@ public class PlayerActivity extends Activity
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
     }
 
-    private GradientDrawable cellBg(boolean highlight) {
+    /** 格子背景：三种状态必须各有一套视觉，不能复用。
+     *
+     * 焦点 = 亮橙实心底（遥控器在哪一目了然）；
+     * 当前播放集（未聚焦）= 只有橙色描边、底保持和其它格子一样；
+     * 其它 = 深灰底 + 淡描边。
+     *
+     * 早期两态共用同一套亮橙底（`hasFocus || index == episodeIndex`），
+     * 实测焦点移到别的集后旧格仍是橙色 —— 两格同时亮，看起来像焦点没跟过去。
+     * 用户的原话是「遥控器选其他集后，背景没有去掉」。 */
+    private GradientDrawable cellBg(boolean focused, boolean current) {
         GradientDrawable d = new GradientDrawable();
         d.setCornerRadius(dp(10));
-        if (highlight) {
+        if (focused) {
             d.setColor(0x44FF6B42);
             d.setStroke(dp(2), 0xCCFF6B42);
+        } else if (current) {
+            d.setColor(0x14FFFFFF);
+            d.setStroke(dp(2), 0x99FF6B42);
         } else {
             d.setColor(0x14FFFFFF);
             d.setStroke(dp(1), 0x33FFFFFF);
         }
         return d;
+    }
+
+    /** 背景与文字色一起刷，避免只换底、文字色还留着上一态的颜色。 */
+    private void paintCell(Button b, int index, boolean focused) {
+        boolean current = (index == episodeIndex);
+        b.setBackground(cellBg(focused, current));
+        b.setTextColor(current && !focused ? 0xFFFFD3C2 : 0xFFF2F1ED);
     }
 
     private int dp(int v) {
