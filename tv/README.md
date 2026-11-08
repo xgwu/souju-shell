@@ -1,11 +1,12 @@
 # 搜剧 AI 电视版 · 阶段 1~10 工程
 
-**当前状态**：`0.10.2` / build 17 / 381KB —— WebView 壳 + 遥控器焦点引擎 + TV 版式皮肤 +
+**当前状态**：`0.10.3` / build 18 / 388KB —— WebView 壳 + 遥控器焦点引擎 + TV 版式皮肤 +
 手机扫码输入 + 原生播放器 + 选集面板 / 进度回写 / 登录入口 / 远程线路配置 +
 首屏揭幕门 / 下划线导航 / 紧凑主推条 / 首屏排序 / 焦点放大 / 滚动补间 +
 首屏取舍（只留继续观看 + 海报墙）/「追剧」菜单 / 点海报直进全屏播放器 +
 **自建签名通道（点海报 1.5 秒起播）** + 选集焦点态与「当前集」分层 +
-**播放器 bar 自动隐藏 / 上键回首屏不跳菜单 / 导航下划线跟随焦点 / AI 搜索修复**，
+**播放器 bar 自动隐藏 / 上键回首屏不跳菜单 / 导航下划线跟随焦点 / AI 搜索修复** +
+**焦点去橙框 / 继续观看列表即时刷新**，
 已装进雷鸟鹤7 Pro 75R675C 实机验证。
 自签名证书 30 年有效，装一次永久可用，没有 iOS 版那套 7 天续签。
 
@@ -427,6 +428,7 @@ JSON 格式（未识别的字段一律忽略，网络失败静默回落到内置
 | `TVDP_SWITCH {"label"}` | 播放器里换集/下一集，遮罩切回「正在切换剧集…」 |
 | `TVDP_EXIT {"reason"}` | 播放器退出，遮罩换「正在返回首页…」，2.6 秒后 `history.back()` |
 | `TVDP_CANCEL {"note","phase"}` | 会话收尾（`popstate` 落地首页 / 用户中途返回 / 路径被改） |
+| `TVRESUME {"note","title","step"}` | 继续观看列表核对/刷新：`fresh`（一致）/ `detour`（路由绕行）/ `reload`（整页刷新）/ `giveup-*`（放弃原因）；见「0.10.3」 |
 | `TVDP_SLOW` | 超过 60 秒仍没地址，提示换成「线路较慢…（按返回可退出）」，**不撤遮罩** |
 | `TVDP_TIMEOUT` | 3 分钟仍解析不出，才退回详情页 |
 
@@ -699,3 +701,28 @@ auth.restoreSession` → 两次 auth 探测回 NOT_IMPL → `kind = restore_fail
 实机验证（`0.10.2` / build 17）：焦点海报「嫁金钗」边缘 4968 个采样点 **0 个橙色**
 （全图唯一橙色是海报封面本身的内容色）；原生面板焦点格纯橙底无描边。
 截图：`docs/tv-stage10-noring-focus.png`、`docs/tv-stage10-noring-sheet.png`。
+
+### 0.10.3 继续观看列表即时刷新（build 18）
+
+用户反馈：「刚刚看过的剧集，没有出现在继续观看列表里。」
+
+取证（CDP 实机逐层验证）：进度回写本身没问题——`playback-resume` 本地存储首条
+就是刚看的剧；冷启动 / 站点自身真实跳转后列表也是全的。问题出在**退出播放器
+SPA 回到首页那一刻列表不重读数据**：
+
+| 手段 | 结果 |
+|---|---|
+| 直接改 localStorage + 派发站点 `movie-search-playback-resume-updated` 事件 | 已挂载的列表**不变** |
+| pushState 到 `/library/history` 再回首页 | **仍不变** |
+| 整页加载 / 站点自身路由跳转后的重挂载 | 读到新数据 |
+
+根因：首页列表由 React `useSyncExternalStore` 订阅站点的 `playback-resume-store`
+驱动，SPA 返回不触发重挂载，store 的变更事件在我们的回写路径里到不了它。
+
+修法（壳层兜底，`tv-overlay.js`）：进度回写完成置 `resumeDirty`；回到首页
+（popstate）后核对「本地最新一条 vs 列表 DOM」（`.movie-resume-name` 片名比对），
+不一致就逐级刷新——① 派发站点 store 事件（`playback-resume-updated` /
+`library-updated` / 合成 `storage` 事件，无副作用）→ ② 路由绕行进一次
+「播放历史」再回首页逼重挂载（同「追剧」菜单机制）→ ③ 整页 `reload`
+（冷启动水合必读 localStorage；sessionStorage 记时间戳，2 分钟内只允许一次防循环）。
+列表未挂出（骨架期）先等（1.6s × 4）再升级，全程 `TVRESUME` 日志。

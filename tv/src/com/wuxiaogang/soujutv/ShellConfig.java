@@ -15,8 +15,8 @@ import java.util.Set;
 public final class ShellConfig {
 
     public static final String TAG = "SoujuTV";
-    public static final String APP_VERSION = "0.10.2";
-    public static final int APP_BUILD = 17;
+    public static final String APP_VERSION = "0.10.3";
+    public static final int APP_BUILD = 18;
     public static final String BRIDGE_VERSION = "1.3.0-tv";
     /** 阶段 4 手机输入服务端口；换端口只改这里，二维码会同步变化。 */
     public static final int INPUT_SERVER_PORT = 8088;

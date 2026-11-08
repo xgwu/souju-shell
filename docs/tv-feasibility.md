@@ -1,8 +1,8 @@
 # 搜剧 AI 电视版（雷鸟鹤系列）可行性与技术方案
 
-> 调研日期：2026-11-07 · 目标设备：**雷鸟 鹤7 Pro 75R675C**（MT9653 / Android 11）
-> 固件：`V8-0012T11-LF1V706.003371` · **WebView：Chromium 83.0.4103.120（实测）**
-> 实测数据：`docs/tv-webview-capabilities.json` · 复测工具：`tools/tv-webview-probe.py`
+> 调研日期：2026-11-07 · 目标设备：**雷鸟 鹤7 Pro 75R675C**（MT9653 / Android 11）  
+> 固件：`V8-0012T11-LF1V706.003371` · **WebView：Chromium 83.0.4103.120（实测）**  
+> 实测数据：`docs/tv-webview-capabilities.json` · 复测工具：`tools/tv-webview-probe.py`  
 > 参考实现：同仓 iOS 版 `souju-shell`（6049 行 Swift） · 电视工程与命令：`tv/README.md`
 
 ---
@@ -19,30 +19,32 @@
 
 ### 0.1 两轮校准：截图 → ADB 实测
 
-| 项 | 初版假设 | 截图校准 | **ADB 实测** | 对方案的影响 |
-|---|---|---|---|---|
-| 机型 | 鹤6 24款 | 鹤7 Pro 75R675C | `tcl_mt5879_cn` / `mt9952` / `MT9653-DMIC-4` | 平台同代，路线不变 |
-| WebView | 未知，概率「中」 | 猜 ≥90（V706 较新） | **Chromium 83.0.4103.120** | 猜测被推翻，须加兼容层（§5.5） |
-| ABI | arm64-v8a | — | **armeabi-v7a（32 位）** | APK 只能打 32 位，见 §4 |
-| CSS 视口 | 1920×1080 | — | **1280×720 @ dpr 1.5** | 版式全部重算（§6） |
-| 播放 | H5 可用 | 建议做 B 阶段 | WebView 内 HEVC 完全不支持 | B 阶段进一步坐实 |
+| 项       | 初版假设      | 截图校准           | **ADB 实测**                                   | 对方案的影响            |
+| ------- | --------- | -------------- | -------------------------------------------- | ----------------- |
+| 机型      | 鹤6 24款    | 鹤7 Pro 75R675C | `tcl_mt5879_cn` / `mt9952` / `MT9653-DMIC-4` | 平台同代，路线不变         |
+| WebView | 未知，概率「中」  | 猜 ≥90（V706 较新） | **Chromium 83.0.4103.120**                   | 猜测被推翻，须加兼容层（§5.5） |
+| ABI     | arm64-v8a | —              | **armeabi-v7a（32 位）**                        | APK 只能打 32 位，见 §4 |
+| CSS 视口  | 1920×1080 | —              | **1280×720 @ dpr 1.5**                       | 版式全部重算（§6）        |
+| 播放      | H5 可用     | 建议做 B 阶段       | WebView 内 HEVC 完全不支持                         | B 阶段进一步坐实         |
 
 **值得记下来的一次判断失误**：我看到固件是 `V706`（2026-01-22 构建），推断系统 WebView「大概率 ≥90」。实测是 **83**——厂商把 WebView 锁在系统分区，固件再新也不更新它。以后判断内核版本，只认 `dumpsys webviewupdate`，不从固件版本外推。
 
-好消息是：站点 JS 产物里**没有任何解析级不兼容语法**（`??=` / `&&=` / `||=` 全为 0），缺的都是可补的运行时 API 和 CSS 特性。所以路线 A 依然成立，兼容工作从「启动前置」降为「防御性补丁」（§5.5）。
+|                                                   |   |                                                                           |
+| ------------------------------------------------- | - | ------------------------------------------------------------------------- |
+| 好消息是：站点 JS 产物里**没有任何解析级不兼容语法**（`??=` / `&&=` / \` |   | =\` 全为 0），缺的都是可补的运行时 API 和 CSS 特性。所以路线 A 依然成立，兼容工作从「启动前置」降为「防御性补丁」（§5.5）。 |
 
 ### 0.2 阶段 0 已验证通过（2026-11-07 11:10 实机）
 
 自签名 APK 已经装进电视并启动，路线 A 的前置条件全部拿到硬证据：
 
-| 验证项 | 结果 |
-|---|---|
-| `adb install -r` | ✅ `Success`，489ms；两个 verifier 开关为 `null` 也不拦截 |
-| 桌面可见 | ✅ 「我的应用」列表共 10 项，**搜剧TV 排第一位**，橙色图标正常 |
-| 第三方 App 的 WebView | ✅ `com.android.webview / 83.0.4103.120`，与系统浏览器一致 |
-| CSS 视口 | ✅ `1280×720 @ dpr 1.5`，UA 覆盖生效 |
-| **站点裸跑** | ✅ **React SPA 完整渲染：988 节点 / 1836 字符 / 37 张海报 / 61 链接，logcat 无一条 JS 错误** |
-| 遥控器按键 | ✅ DPAD 上/下/左/右、OK、BACK 六个键全部到达 `dispatchKeyEvent` |
+| 验证项               | 结果                                                                      |
+| ----------------- | ----------------------------------------------------------------------- |
+| `adb install -r`  | ✅ `Success`，489ms；两个 verifier 开关为 `null` 也不拦截                           |
+| 桌面可见              | ✅ 「我的应用」列表共 10 项，**搜剧TV 排第一位**，橙色图标正常                                   |
+| 第三方 App 的 WebView | ✅ `com.android.webview / 83.0.4103.120`，与系统浏览器一致                        |
+| CSS 视口            | ✅ `1280×720 @ dpr 1.5`，UA 覆盖生效                                          |
+| **站点裸跑**          | ✅ **React SPA 完整渲染：988 节点 / 1836 字符 / 37 张海报 / 61 链接，logcat 无一条 JS 错误** |
+| 遥控器按键             | ✅ DPAD 上/下/左/右、OK、BACK 六个键全部到达 `dispatchKeyEvent`                       |
 
 最意外的一条：**不加任何 polyfill，站点首页就跑起来了**。静态扫描里那 3 个「未保护运行时 API」不在首屏初始化路径上，`souju.ai → bpz2.com` 的线路自动跳转也正常走完。因此 §5.5 兼容层不再阻断启动，阶段 0.5 可以并入后续开发。
 
@@ -52,146 +54,147 @@
 
 正式壳与焦点引擎已经装进电视，全部取证来自 `adb logcat -s SoujuTV` 与自检回包，不依赖界面描述。
 
-| 验证项 | 结果 |
-|---|---|
-| 构建 | 7 个 Java 类 / 44KB APK，v1+v2+v3 签名通过，`adb install -r` 319–469ms |
-| **桥就位** | 站点主动调用 `app.getSystemInsets`、`app.getCapabilities`（多次），`bridge:true`；令牌误拒 0 次 |
-| **能力协商** | `platform:"android"` + `supportsNativePlayer:false` → 站点判 `legacy_app`，回落 H5 播放器 |
-| **注入自检** | `cssInjected:true`、焦点环 `rgb(255,138,61)`、`Array.at` / `replaceAll` / `randomUUID` 三个 polyfill 全生效 |
-| **焦点遍历** | 83 个候选；连续右键 y=16→16→19，向下 x 偏移 26–27px，**无斜跳**；OK 键 `clicked` 生效 |
-| **焦点环可见** | 实机截图确认橙色描边框住「周六 7日」日历格 |
-| **令牌隔离** | 不可信 `file://` 页面上 `SoujuTvNative` 确实存在，但伪造/空/猜测令牌 3 次调用**全部 REJECT**，且 `H5ShellNativeBridge === undefined` |
-| **线路 failover** | 首条 `ERR_UNSAFE_PORT` → `FAILOVER_TRIGGER` → 600ms 后切第二条，VERIFY / DOM 全绿 |
-| 返回 / 菜单 | BACK 跳过失败页历史、单次不退出；MENU 切线路生效 |
-| 稳定性 | 无 JS 错误、无崩溃、进程存活 |
+| 验证项             | 结果                                                                                                         |
+| --------------- | ---------------------------------------------------------------------------------------------------------- |
+| 构建              | 7 个 Java 类 / 44KB APK，v1+v2+v3 签名通过，`adb install -r` 319–469ms                                             |
+| **桥就位**         | 站点主动调用 `app.getSystemInsets`、`app.getCapabilities`（多次），`bridge:true`；令牌误拒 0 次                              |
+| **能力协商**        | `platform:"android"` + `supportsNativePlayer:false` → 站点判 `legacy_app`，回落 H5 播放器                           |
+| **注入自检**        | `cssInjected:true`、焦点环 `rgb(255,138,61)`、`Array.at` / `replaceAll` / `randomUUID` 三个 polyfill 全生效          |
+| **焦点遍历**        | 83 个候选；连续右键 y=16→16→19，向下 x 偏移 26–27px，**无斜跳**；OK 键 `clicked` 生效                                           |
+| **焦点环可见**       | 实机截图确认橙色描边框住「周六 7日」日历格                                                                                     |
+| **令牌隔离**        | 不可信 `file://` 页面上 `SoujuTvNative` 确实存在，但伪造/空/猜测令牌 3 次调用**全部 REJECT**，且 `H5ShellNativeBridge === undefined` |
+| **线路 failover** | 首条 `ERR_UNSAFE_PORT` → `FAILOVER_TRIGGER` → 600ms 后切第二条，VERIFY / DOM 全绿                                    |
+| 返回 / 菜单         | BACK 跳过失败页历史、单次不退出；MENU 切线路生效                                                                              |
+| 稳定性             | 无 JS 错误、无崩溃、进程存活                                                                                           |
 
 **四条推翻或细化了原方案的实测结论**（细节见 §4、§5.1）：
 
-1. **站点 CSP 是 `script-src 'self' https:`（无 `unsafe-inline`），`frame-ancestors 'none'`**。
-   所以不能靠 `shouldInterceptRequest` 改写 HTML 塞 `<script>` 来做 documentStart 注入。
-   `evaluateJavascript` 从 WebView 层执行，**不受页面 CSP 约束** —— 自检回包证实了这一点。
+1. **站点 CSP 是 `script-src 'self' https:`（无 `unsafe-inline`），`frame-ancestors 'none'`**。  
+   所以不能靠 `shouldInterceptRequest` 改写 HTML 塞 `<script>` 来做 documentStart 注入。  
+   `evaluateJavascript` 从 WebView 层执行，**不受页面 CSP 约束** —— 自检回包证实了这一点。  
    注入时序靠 start / progress≥15 / finish 三次幂等注入 + 站点自身 `[0,120,320,700]ms` 四轮等桥重试兜底。
-2. **导航白名单必须与桥白名单分开**。原方案写「拦掉白名单外所有跳转」，但站点是域名轮换架构，
-   顶层导航一旦严格拦截，中转域换了就打不开。改成：顶层 https 导航放行，
+2. **导航白名单必须与桥白名单分开**。原方案写「拦掉白名单外所有跳转」，但站点是域名轮换架构，  
+   顶层导航一旦严格拦截，中转域换了就打不开。改成：顶层 https 导航放行，  
    **只有可信 host 的主 frame 下发令牌**。安全等价性更强 —— 令牌才是真正的权限边界。
-3. **站点的 `window.AiMovieAndroidBridge.postMessage` 只是环境探针，不是 RPC 通道**。
-   全量 bundle 里它只出现在 `native-environment`，真正 RPC 一律走 `H5ShellNativeBridge.call`。
-   UA 刻意**不加** `AIMovieAndroidBrowser/1`：那个标记会让站点走原生更新检查 / 午夜剧场原生全屏分支，
+3. **站点的 `window.AiMovieAndroidBridge.postMessage` 只是环境探针，不是 RPC 通道**。  
+   全量 bundle 里它只出现在 `native-environment`，真正 RPC 一律走 `H5ShellNativeBridge.call`。  
+   UA 刻意**不加** `AIMovieAndroidBrowser/1`：那个标记会让站点走原生更新检查 / 午夜剧场原生全屏分支，  
    而 A 阶段两者都没实现。`capabilities.platform:"android"` 已足够让 insets 与评论区走正确分支。
-4. **焦点环比预想难**：站点按钮带 `.movie-button-secondary:focus` 这类高特异性规则，
-   会盖掉样式表里的 `.tv-focused { outline:…!important }`（实测三个按钮里两个分别显示白/深墨色）。
-   最终改成 JS 侧写 **inline `!important`** 并在切换时还原原值。另外补了 `elementFromPoint` 最上层过滤，
+4. **焦点环比预想难**：站点按钮带 `.movie-button-secondary:focus` 这类高特异性规则，  
+   会盖掉样式表里的 `.tv-focused { outline:…!important }`（实测三个按钮里两个分别显示白/深墨色）。  
+   最终改成 JS 侧写 **inline `!important`** 并在切换时还原原值。另外补了 `elementFromPoint` 最上层过滤，  
    否则弹窗遮罩底下的元素仍会被当成可聚焦；以及去掉 `outline-color` 的 120ms 过渡，让焦点环即时可见。
 
 ### 0.4 阶段 3 已验证通过（2026-11-07 13:23 实机）
 
-TV 版式皮肤 + 兼容层 + 锚点自检已装进电视。取证来自 `adb logcat -s SoujuTV`、
+TV 版式皮肤 + 兼容层 + 锚点自检已装进电视。取证来自 `adb logcat -s SoujuTV`、  
 CDP 几何量取与 `docs/tv-stage3-home.png`（App 自注入皮肤后滚回顶部的首屏）。
 
-| 验证项 | 结果 |
-|---|---|
-| 构建 / 安装 | `0.3.0`（build 3）/ 52KB APK，v1+v2+v3 通过，`adb install -r` 518–684ms |
-| **6 列网格** | `gridTemplateColumns` = 6 × `190px`，卡片 `190×287`（`padding-bottom:150%` 做 2:3），替代原 `180px×10` 横向 rail |
-| **无横向溢出** | `documentElement.scrollWidth=1280`、`overflowX:false`；所有横滑列表改成网格 / wrap |
-| **字号** | 搜索输入 26px、顶部导航 26px、热词 19px、卡片标题 20px、section 标题 26px（原 11–16px） |
-| **今晚首选** | 由首张 feed 卡数据生成的 1200×148 宽幅卡，焦点可达、点击走站内链接 |
-| **深色层** | 重映射站点 `--movie-*` 令牌为 iOS souju-dark 同套色值 |
-| **锚点自检** | `HEALTH_OK checked=13 columns=6 overflowX=false missing=''`，站点改版会主动告警 |
-| **VERIFY** | `skinCss:true / skinMarker:on / skinState.missing:[] / gridColumns:6`，3 个 polyfill 仍全绿 |
-| **焦点连续性** | 连续 8 次 DOWN 全部 `moved`（首页→搜索→今晚首选→第 2/3/4/5 行海报），零 `initial` |
-| 稳定性 | 无 JS 错误、无崩溃；`DOM` 979 节点 / 40–42 图 / 62 链接 / 46 按钮 |
+| 验证项        | 结果                                                                                                   |
+| ---------- | ---------------------------------------------------------------------------------------------------- |
+| 构建 / 安装    | `0.3.0`（build 3）/ 52KB APK，v1+v2+v3 通过，`adb install -r` 518–684ms                                    |
+| **6 列网格**  | `gridTemplateColumns` = 6 × `190px`，卡片 `190×287`（`padding-bottom:150%` 做 2:3），替代原 `180px×10` 横向 rail |
+| **无横向溢出**  | `documentElement.scrollWidth=1280`、`overflowX:false`；所有横滑列表改成网格 / wrap                               |
+| **字号**     | 搜索输入 26px、顶部导航 26px、热词 19px、卡片标题 20px、section 标题 26px（原 11–16px）                                     |
+| **今晚首选**   | 由首张 feed 卡数据生成的 1200×148 宽幅卡，焦点可达、点击走站内链接                                                            |
+| **深色层**    | 重映射站点 `--movie-*` 令牌为 iOS souju-dark 同套色值                                                            |
+| **锚点自检**   | `HEALTH_OK checked=13 columns=6 overflowX=false missing=''`，站点改版会主动告警                                |
+| **VERIFY** | `skinCss:true / skinMarker:on / skinState.missing:[] / gridColumns:6`，3 个 polyfill 仍全绿               |
+| **焦点连续性**  | 连续 8 次 DOWN 全部 `moved`（首页→搜索→今晚首选→第 2/3/4/5 行海报），零 `initial`                                         |
+| 稳定性        | 无 JS 错误、无崩溃；`DOM` 979 节点 / 40–42 图 / 62 链接 / 46 按钮                                                   |
 
 **四条推翻或细化了 §6 初版设计的实测结论**：
 
-1. **左侧竖导航改成了「隐藏侧栏 + 满宽顶部导航」**。CDP 量取发现站点那个 272px 侧栏
-   不是主导航，而是用户信息抽屉（头像 / 成长值 / 扫码 / 分享 / 通知 / 登录）。把它收窄并放大到
-   20px 后内容换行重叠、被裁切，占 272px 却只提供电视上用不到的功能。真正的主导航是
-   `.app-primary-nav-desktop`（首页/短剧/历史/片单），改成满宽顶栏后内容区 1200px，
+1. **左侧竖导航改成了「隐藏侧栏 + 满宽顶部导航」**。CDP 量取发现站点那个 272px 侧栏  
+   不是主导航，而是用户信息抽屉（头像 / 成长值 / 扫码 / 分享 / 通知 / 登录）。把它收窄并放大到  
+   20px 后内容换行重叠、被裁切，占 272px 却只提供电视上用不到的功能。真正的主导航是  
+   `.app-primary-nav-desktop`（首页/短剧/历史/片单），改成满宽顶栏后内容区 1200px，  
    6 列每张正好 190 CSS px —— 与 §6 初版数值一致，但路径完全不同。
-2. **站点用 `--movie-sidebar-width` 变量 + `!important` 决定主内容 padding**。
-   只写 `padding-left:40px!important` 会被反压回 288px；实测在 `html` 上写
+2. **站点用 `--movie-sidebar-width` 变量 + `!important` 决定主内容 padding**。  
+   只写 `padding-left:40px!important` 会被反压回 288px；实测在 `html` 上写  
    `style.setProperty('--movie-sidebar-width','40px','important')` 才稳。
-3. **首屏排序比压缩尺寸更有效**。「本周追剧」日历（7 个日期 + 4 组剧集小卡）放大后会占 528px，
-   把海报推到 y≈1100。用 flex `order` 把日历挪到海报墙之后、`继续下滑` 提示挪到最后
+3. **首屏排序比压缩尺寸更有效**。「本周追剧」日历（7 个日期 + 4 组剧集小卡）放大后会占 528px，  
+   把海报推到 y≈1100。用 flex `order` 把日历挪到海报墙之后、`继续下滑` 提示挪到最后  
    （不能 `display:none`，站点靠它触发无限滚动），首屏第一行海报从 y=538 开始。
-4. **宽幅卡的焦点要用「覆盖区间」而不是中心点**。1.2k 宽的今晚首选卡中心 x=640，
-   从左侧热词按 DOWN 时按中心点算侧向偏移 400+px，会被轴向加权判成斜跳而整张卡跳过。
+4. **宽幅卡的焦点要用「覆盖区间」而不是中心点**。1.2k 宽的今晚首选卡中心 x=640，  
+   从左侧热词按 DOWN 时按中心点算侧向偏移 400+px，会被轴向加权判成斜跳而整张卡跳过。  
    焦点引擎补了「当前坐标落在超宽元素水平范围内时 cross=0」的特例。
 
-**阶段 3 顺带修掉两个焦点隐患**（都是实机按键轨迹暴露的）：
-`tv-skin.js` 的 `tonight()` 第一版每次同步都移除重建横幅，MutationObserver 被自己的 DOM 改动
-触发，形成 220ms 死循环（候选数 75/76 跳动、焦点每按两下弹回顶部）→ 改成按数据签名幂等；
-焦点引擎补了 `refind()`（站点重建 feed 卡后按「标签+可读文本+坐标」找回等价元素）与
+**阶段 3 顺带修掉两个焦点隐患**（都是实机按键轨迹暴露的）：  
+`tv-skin.js` 的 `tonight()` 第一版每次同步都移除重建横幅，MutationObserver 被自己的 DOM 改动  
+触发，形成 220ms 死循环（候选数 75/76 跳动、焦点每按两下弹回顶部）→ 改成按数据签名幂等；  
+焦点引擎补了 `refind()`（站点重建 feed 卡后按「标签+可读文本+坐标」找回等价元素）与  
 `recovered` 分支（彻底失联时落在上次位置附近，而不是列表第一个「首页」）。
 
 ### 0.5 阶段 4+5 已验证通过（2026-11-07 14:35 实机）
 
-版本 `0.5.0` / build 5 / 336KB APK（新增 zxing 只为画二维码）。包含
+版本 `0.5.0` / build 5 / 336KB APK（新增 zxing 只为画二维码）。包含  
 **四项用户实报 UI 修复** + **阶段 4 手机扫码输入** + **阶段 5 原生播放器**。
 
 **四项 UI 修复**（全部 CDP 断言回归通过）：
 
-| 问题 | 根因 | 修复 |
-|---|---|---|
-| 焦点移开后顶部菜单残留橙框 | 旧实现给站点元素写 inline `outline/box-shadow`，失焦时还原被站点高特异性 `:focus` 盖掉；多元素同时带环 | 改为 `data-tv-ring` 属性标记 + 单一焦点持有，遍历 12 键后全页 ring=1 |
-| 海报获焦后消失 | 获焦 `scale(1.04)` 放大元素，站点卡片 `overflow:hidden` 联动把图片裁没了 | 缩放改到内层 / 修 `transform-origin`，获焦后图片 196×296 完整可见 |
-| 「热门剧」热词行无意义 | 站点首屏两行 chips 占 ~120px | 隐藏 `.movie-home-prompt-groups`，首屏让给海报墙 |
-| 搜索框太大占地方 | 常驻 composer 占 ~100px | 收成右上角搜索图标；OK 开**自建**搜索浮层（默认聚焦输入框），BACK 关浮层、焦点还给图标。不自建浮层不行：站点的 `fixed` composer 被 `.keepalive-route-container` 的 `isolation:isolate` 锁在低层堆叠上下文，且聚焦输入框会触发 WebView 视口缩小 |
+| 问题            | 根因                                                                     | 修复                                                                                                                                                                   |
+| ------------- | ---------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 焦点移开后顶部菜单残留橙框 | 旧实现给站点元素写 inline `outline/box-shadow`，失焦时还原被站点高特异性 `:focus` 盖掉；多元素同时带环 | 改为 `data-tv-ring` 属性标记 + 单一焦点持有，遍历 12 键后全页 ring=1                                                                                                                    |
+| 海报获焦后消失       | 获焦 `scale(1.04)` 放大元素，站点卡片 `overflow:hidden` 联动把图片裁没了                  | 缩放改到内层 / 修 `transform-origin`，获焦后图片 196×296 完整可见                                                                                                                     |
+| 「热门剧」热词行无意义   | 站点首屏两行 chips 占 ~120px                                                  | 隐藏 `.movie-home-prompt-groups`，首屏让给海报墙                                                                                                                               |
+| 搜索框太大占地方      | 常驻 composer 占 ~100px                                                   | 收成右上角搜索图标；OK 开**自建**搜索浮层（默认聚焦输入框），BACK 关浮层、焦点还给图标。不自建浮层不行：站点的 `fixed` composer 被 `.keepalive-route-container` 的 `isolation:isolate` 锁在低层堆叠上下文，且聚焦输入框会触发 WebView 视口缩小 |
 
-**阶段 4（手机扫码输入）**：`LocalInputServer` 监听 8088、4 位配对码、ZXing 画二维码。
-实测 `/api/send?k=6688` → 电视 100ms 收到 `tv.remoteInput` → 用 React 受控组件原型
+**阶段 4（手机扫码输入）**：`LocalInputServer` 监听 8088、4 位配对码、ZXing 画二维码。  
+实测 `/api/send?k=6688` → 电视 100ms 收到 `tv.remoteInput` → 用 React 受控组件原型  
 setter 写入搜索框自动提交；无/错配对码一律 403。
 
-**阶段 5（原生播放器）**：`PlayerActivity` 用系统 `MediaPlayer`（不是 ExoPlayer ——
-直链 mp4 + Range 拉流 MediaPlayer 足够，media3 的收益只剩 DASH/DRM，不值得为此引入
-AAR 链）。遥控器全接管：OK 播放/暂停、←→ ±10s、↑↓ 音量、MENU 显隐控制条、BACK 退出。
-实测 H5 播放到 20:46 点「原生播放」→ 1 秒 `PLAYING duration=48:10` 续播、全部按键生效、
+**阶段 5（原生播放器）**：`PlayerActivity` 用系统 `MediaPlayer`（不是 ExoPlayer ——  
+直链 mp4 + Range 拉流 MediaPlayer 足够，media3 的收益只剩 DASH/DRM，不值得为此引入  
+AAR 链）。遥控器全接管：OK 播放/暂停、←→ ±10s、↑↓ 音量、MENU 显隐控制条、BACK 退出。  
+实测 H5 播放到 20:46 点「原生播放」→ 1 秒 `PLAYING duration=48:10` 续播、全部按键生效、  
 网络不可达的流正确弹 `MEDIA_ERROR`。
 
-**本次最重要的技术发现 —— 伪装直链**：
-站点把整部 mp4 存在 `.jpg` 路径下（`p6-volc-community-sign.byteimg.com/...jpg~tplv-...`），
-CDN 回包 `content-type: image/jpeg` 但字节是 `ftyp isom/avc1`（`Range: bytes=0-127` 实测，
-总长 532MB、`accept-ranges: bytes`）。`video.currentSrc` 长得像封面图却在正常播放
-（`duration=2890s`、`currentTime` 前进）。**推论：媒体直链判据是 `video.duration > 0`，
-绝不能按扩展名过滤** —— 按 `.mp4/.m3u8` 后缀过滤会误杀真直链、放过真占位图。
+**本次最重要的技术发现 —— 伪装直链**：  
+站点把整部 mp4 存在 `.jpg` 路径下（`p6-volc-community-sign.byteimg.com/...jpg~tplv-...`），  
+CDN 回包 `content-type: image/jpeg` 但字节是 `ftyp isom/avc1`（`Range: bytes=0-127` 实测，  
+总长 532MB、`accept-ranges: bytes`）。`video.currentSrc` 长得像封面图却在正常播放  
+（`duration=2890s`、`currentTime` 前进）。**推论：媒体直链判据是 `video.duration > 0`，  
+绝不能按扩展名过滤** —— 按 `.mp4/.m3u8` 后缀过滤会误杀真直链、放过真占位图。  
 同时确认站点有全站 Service Worker（scope=`https://souju.ai/`，controller=true）。
 
-**顺带修复**：播放中无操作 8 分钟电视进屏保并把播放器暂停（用户实报场景）→
-`PlayerActivity` 加 `FLAG_KEEP_SCREEN_ON`；onPause 停 500ms 进度轮询、onResume 恢复。
-另：**adb 截屏拍不到原生播放器的视频层**（HUD 能拍到、视频层全黑），这是 MTK 对
-硬件 overlay 层的截屏限制 —— 播放器取证看 `player:` 日志与音频 `state:started`，
+**顺带修复**：播放中无操作 8 分钟电视进屏保并把播放器暂停（用户实报场景）→  
+`PlayerActivity` 加 `FLAG_KEEP_SCREEN_ON`；onPause 停 500ms 进度轮询、onResume 恢复。  
+另：**adb 截屏拍不到原生播放器的视频层**（HUD 能拍到、视频层全黑），这是 MTK 对  
+硬件 overlay 层的截屏限制 —— 播放器取证看 `player:` 日志与音频 `state:started`，  
 画面以电视实际显示为准。
 
 ### 0.6 阶段 6 四项可选增强（2026-11-07 16:40 实机）
 
 版本 `0.6.0` / build 6 / 352KB APK。四项全部实机跑通：
 
-| 增强 | 落点 | 实机证据 |
-|---|---|---|
-| ① 选集 / 剧集列表原生 UI | H5 自建 8 列网格（`.tv-episode-cell`）+ `PlayerActivity` 底部面板（MENU 唤出、8 列/行、当前集高亮并自动获焦） | `EPISODE_PICK 7` → `RETURN reason=episode pos=337541/1694083 ep=5 pick=7` → `TVEPISODE pick 7 第8集` → `resolved .../axkVJBEe/index.m3u8 afterMs=11281` → `PLAYER_OPEN ep=7/15` → `PLAYING duration=1468250`（24:28，正是第 8 集） |
-| ② 播放位置回写「继续观看」 | H5 `syncProgress()`：退出时把站点 `<video>` 静音 seek 到目标位前 2 秒、真播 2.1 秒，借站点自己的 recorder 落库 | `TVPROGRESS {synced:32,from:111}`；localStorage `movie-search:v2:playback-resume:owner:guest` 首条变 `["走马上任","第8集",32]`，`updatedAt` 同步刷新；预览键 `playback-resume-preview` 也指向第 8 集 |
-| ③ 账号登录入口 | 自建登录浮层（二维码 + 账号/密码两个「手机输入」按钮 + 登录/返回）；回车路径全部走 8088 局域网输入，React 原型 setter 写值后点站点提交 | `TVINPUT {text:"demo@example.com",field:"account",lagMs:114}` → `TVLOGIN_ARM password` → `TVINPUT (password) lagMs:74` → 自动 `TVLOGIN_SUBMIT {hasForm:true,hasSubmit:true}` → 3.8s 后 `登录未成功`（假账号，属预期） |
-| ④ 远程线路配置下发 | `TvConfig`：启动异步拉 JSON（version/lines/trusted/notice），校验后落 SharedPreferences；两条下发通道 —— 公网 `--es config <url>`、局域网 `POST /api/config?k=<pin>` | LAN 推送 `CONFIG_PUSH len=137` → `CONFIG_APPLIED v9 lines=3 source=lan changed=true`；重启后 `LINES [souju.ai, hctd4.com, test-line-3.example]` 仍生效；公网通道 `CONFIG_FETCH 200` → `CONFIG_APPLIED v11 lines=2 trusted=bpz2.com,bpz3.top changed=true`；`--es config off` → `CONFIG_URL_CLEARED` |
+| 增强               | 落点                                                                                                                                         | 实机证据                                                                                                                                                                                                                                                                                 |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| ① 选集 / 剧集列表原生 UI | H5 自建 8 列网格（`.tv-episode-cell`）+ `PlayerActivity` 底部面板（MENU 唤出、8 列/行、当前集高亮并自动获焦）                                                           | `EPISODE_PICK 7` → `RETURN reason=episode pos=337541/1694083 ep=5 pick=7` → `TVEPISODE pick 7 第8集` → `resolved .../axkVJBEe/index.m3u8 afterMs=11281` → `PLAYER_OPEN ep=7/15` → `PLAYING duration=1468250`（24:28，正是第 8 集）                                                            |
+| ② 播放位置回写「继续观看」   | H5 `syncProgress()`：退出时把站点 `<video>` 静音 seek 到目标位前 2 秒、真播 2.1 秒，借站点自己的 recorder 落库                                                         | `TVPROGRESS {synced:32,from:111}`；localStorage `movie-search:v2:playback-resume:owner:guest` 首条变 `["走马上任","第8集",32]`，`updatedAt` 同步刷新；预览键 `playback-resume-preview` 也指向第 8 集                                                                                                         |
+| ③ 账号登录入口         | 自建登录浮层（二维码 + 账号/密码两个「手机输入」按钮 + 登录/返回）；回车路径全部走 8088 局域网输入，React 原型 setter 写值后点站点提交                                                          | `TVINPUT {text:"demo@example.com",field:"account",lagMs:114}` → `TVLOGIN_ARM password` → `TVINPUT (password) lagMs:74` → 自动 `TVLOGIN_SUBMIT {hasForm:true,hasSubmit:true}` → 3.8s 后 `登录未成功`（假账号，属预期）                                                                                 |
+| ④ 远程线路配置下发       | `TvConfig`：启动异步拉 JSON（version/lines/trusted/notice），校验后落 SharedPreferences；两条下发通道 —— 公网 `--es config <url>`、局域网 `POST /api/config?k=<pin>` | LAN 推送 `CONFIG_PUSH len=137` → `CONFIG_APPLIED v9 lines=3 source=lan changed=true`；重启后 `LINES [souju.ai, hctd4.com, test-line-3.example]` 仍生效；公网通道 `CONFIG_FETCH 200` → `CONFIG_APPLIED v11 lines=2 trusted=bpz2.com,bpz3.top changed=true`；`--es config off` → `CONFIG_URL_CLEARED` |
 
-**本轮抓到的真 bug —— .ts 分片把播放列表挤出缓冲**：
-媒体嗅探原来把 `.ts` 也算媒体地址，HLS 每 2 秒一片，8 条环形缓冲几秒钟就被分片占满，
-点「原生播放」拿到的可能是一个 `.ts` 分片（只能播 2 秒）。改为：
-`.ts` 不入队，只用它反推 `index.m3u8`；`currentMedia()` 优先返回含 `m3u8` 的地址。
+**本轮抓到的真 bug —— .ts 分片把播放列表挤出缓冲**：  
+媒体嗅探原来把 `.ts` 也算媒体地址，HLS 每 2 秒一片，8 条环形缓冲几秒钟就被分片占满，  
+点「原生播放」拿到的可能是一个 `.ts` 分片（只能播 2 秒）。改为：  
+`.ts` 不入队，只用它反推 `index.m3u8`；`currentMedia()` 优先返回含 `m3u8` 的地址。  
 修完 `playUrl` 稳定命中 `https://hn.bfvvs.com/play/e9rp0gPa/index.m3u8` 这类播放列表。
 
-**换集为什么要点完等 11 秒**：点站点选集后，站点自己要 11 秒左右才去请求新集的
-playlist（`TVEPISODE resolved afterMs=11281`），不是壳在等。这期间的优化是：
-切集瞬间把 H5 `<video>` 静音（站点会自己开播），拿到新地址再交给原生播放器；
-超时 20 秒才放弃并解除静音。原生面板换集还会先 `__tvSyncThenPick()`
+**换集为什么要点完等 11 秒**：点站点选集后，站点自己要 11 秒左右才去请求新集的  
+playlist（`TVEPISODE resolved afterMs=11281`），不是壳在等。这期间的优化是：  
+切集瞬间把 H5 `<video>` 静音（站点会自己开播），拿到新地址再交给原生播放器；  
+超时 20 秒才放弃并解除静音。原生面板换集还会先 `__tvSyncThenPick()`  
 把当前集进度写回、2.4 秒后再切，避免两个动作抢同一个 `<video>`。
 
-**其它修复**：`log()` 统一加 `SOUJUTV` 前缀（`TvChromeClient` 的白名单），否则电视上
-console 取不到、现场只能靠截图；`visibilitychange` 补一次 `tick()`（WebView 被原生
+**其它修复**：`log()` 统一加 `SOUJUTV` 前缀（`TvChromeClient` 的白名单），否则电视上  
+console 取不到、现场只能靠截图；`visibilitychange` 补一次 `tick()`（WebView 被原生  
 播放器盖住时定时器会被冻结，回来要立刻恢复工具栏状态）。
 
 ### 0.7 阶段 7 首屏体验六项（2026-11-07 17:35 实机）
 
 版本 `0.7.0` / build 7 起，收尾后为 `0.7.1` / build 8（含下面「验收后又补的三处」）/ 364KB APK。用户报的六条观感问题逐条落地：
+
 
 | # | 问题 | 根因（实测） | 改法 |
 |---|---|---|---|
@@ -348,6 +351,7 @@ B 轮按相对点击时刻拆开（`performance.getEntriesByType('resource')`）
    **答案在第一次响应里就已经有了，站点却去敲一扇锁着的门，还敲了 9 遍。**
 2. **站点是「先搭播放器 UI，再解析地址」。** 实测 `resolve` 请求在点海报后 **12.4 秒**才发出（detail 在 2.6 秒就完成了，中间 9.6 秒全在加载 hls.js / artplayer / P2P / 弹幕那一堆 chunk）。
 3. **WebView 没有原生 HLS。** `MediaSource.isTypeSupported('application/vnd.apple.mpegurl')` = **false**（iOS Safari 是 true）。所以站点必须走 MSE + hls.js，那 60+ 个 chunk 一个都省不掉。
+
 
 已排除的方向：Wi-Fi（5G / WiFi6 / 链路 1201Mbps / 信道利用率 3%）、主线程卡顿（最大长任务 688ms）、皮肤拖慢（关皮肤同样 14/27 秒）、站点 API 绝对慢（Mac 直连同接口 TTFB 380~465ms）。
 
@@ -604,6 +608,7 @@ HTTP 200   4021 bytes   0.79s
 
 **为什么 B 要拆成第二阶段**：A 阶段能验证的东西（能不能装、能不能显示、遥控器能不能走）不需要播放器。播放不满意再上 B，触发条件明确写下来：**1080p 播放掉帧、或 H5 播放条无法用遥控器操作、或需要 4K / HEVC / HDR**，出现任一条就进 B。
 
+
 > 这台电视是 360 分区 MiniLED + DV IQ / HDR10+ 面板，而 WebView 里的 `video` 只能出 SDR，且实测 **HEVC 完全不支持**。两条触发条件在你这台机器上天然成立。B 阶段不是"以后再说"，是"迟早要做"。
 
 ---
@@ -744,6 +749,8 @@ A 阶段用 `WebChromeClient.onShowCustomView` 判定全屏，全屏期间 `disp
 在这颗 SoC 上确实会抖；**候选集要过滤嵌套**（`a` 里套 `button` 时只留内层），否则一次按键跳两级。
 `elementFromPoint` 过滤在弹窗打开时把候选从 83 收敛到 4–16 个，正好把焦点约束在模态内。
 
+|  |  |
+| --- | --- |
 按键轨迹取证（`adb logcat -s SoujuTV | grep I/key`）：连续右键 y=16→16→19，
 向下 x 偏移 26–27px，说明轴向加权（主方向 1、侧向 2.6）确实消掉了斜跳。
 
@@ -770,6 +777,8 @@ adb shell dumpsys webviewupdate
 
 落在原先判定的 **80–89 风险带**。复测工具已沉淀为 `tools/tv-webview-probe.py`，完整数据见 `docs/tv-webview-capabilities.json`。
 
+|  |  |  |
+| --- | --- | --- |
 **JS 侧（好消息）**：站点全部 10 个初始 JS（101 万字符）+ 119 个懒加载分片（259 万字符）里，`??=` / `&&=` / `||=` 这类**解析级不兼容语法为 0**。也就是说不会出现「整站白屏」。缺的是运行时 API，且站点自己已经给 `WeakRef` / `AggregateError` / `AbortSignal.timeout` / `Array.findLast` 写了保护或 polyfill。
 
 真正没有保护、会实际抛错的只有三处：
@@ -853,6 +862,7 @@ if (window.crypto && !crypto.randomUUID) crypto.randomUUID = function () {
   });
 };
 ```
+
 
 不要把 `WeakRef` / `FinalizationRegistry` / `structuredClone` 也随手补上——站点对前两个有 `typeof` 保护，后一个根本没用，多补反而可能改变库的特征检测分支。
 
@@ -938,7 +948,7 @@ adb shell cmd webviewupdate set-webview-implementation com.google.android.webvie
 | **7** | 首屏体验六项（揭幕门 / 下划线导航 / 紧凑主推条 / 首屏排序 / 焦点放大 / 滚动缓动） | 0.5 天 | ✅ **已完成**，见 §0.7：开机不闪版、首屏无位移、焦点 190→209、滚动 9 帧补间 |
 | **8** | 首屏取舍 + 「追剧」菜单 + 直通播放（点海报直达全屏播放器） | 0.5 天 | ✅ **已完成**，见 §0.8 / §0.8.1：首屏只剩继续观看+海报墙、`/updates` 页面菜单直达、起播遮罩全程不撤（13s 仍在遮罩，换集 9.6s 重开、只开一次播放器）、退出自动回首页 |
 | **9** | 起播提速（自建签名通道 + 线路并行预检 + chunk 预热） | 0.5 天 | ✅ **已完成**，见 §0.9：点海报 19.6~25.3s → **1.16~2.60s**、换集 9.6s → 5.1s、续播位置/集数不再错、`video=1920x1080` 取证出图 |
-| **10** | 四条沙发反馈（bar 自动隐藏 / 上键回首屏 / 导航下划线跟随 / AI 搜索修复 + 换集兜底补强） | 0.5 天 | ✅ **已完成**，见 §0.10：四条全部实机验证，`0.10.1` / build 16 |
+| **10** | 四条沙发反馈（bar 自动隐藏 / 上键回首屏 / 导航下划线跟随 / AI 搜索修复 + 换集兜底补强） | 0.5 天 | ✅ **已完成**，见 §0.10：四条全部实机验证，`0.10.1` / build 16；后续 §0.10.1 去橙框（`0.10.2`）、§0.10.2 继续观看即时刷新（`0.10.3`） |
 
 阶段 0~9 **全部完成**。「能装、能显示、遥控器能走、沙发上能看清、能输入、能播片、
 能换集、能记住看到哪、能登录、能远程换域名、开机不闪版、焦点一眼可见、滚动有补间、
@@ -1039,3 +1049,28 @@ TV 端账号登录 / 扫码入口。改皮肤不用重装：`python3 tools/tv-sk
 `outline:none` + 暗色投影；原生选集面板焦点格去描边留橙底。焦点可见性靠
 放大（1.10）+ 投影 + 背景/白底高亮三层，不再靠框。实机像素验证：
 焦点海报边缘 4968 采样点 0 橙点。详见 `tv/README.md` 0.10.2 小节。
+
+#### §0.10.2 继续观看列表即时刷新（0.10.3 / build 18）
+
+用户：「刚刚看过的剧集，没有出现在继续观看列表里。」
+
+取证（2026-11-08 上午，CDP 实机逐层验证）：进度回写没问题——`playback-resume`
+本地存储首条就是刚看的剧（updatedAt 09:20:43）；`/library/history` 与冷启动后的
+首页列表也都正常。缺的是**退出播放器 SPA 回到首页那一刻列表不重读数据**：
+
+| 刷新手段（实机） | 结果 |
+|---|---|
+| 改 localStorage + 派发 `movie-search-playback-resume-updated` | 已挂载列表**不变** |
+| pushState `/library/history` → 回首页（合成 popstate） | **仍不变** |
+| 整页加载 / 站点自身真实路由跳转后的重挂载 | 读到新数据 |
+
+根因：首页「继续观看」由 React `useSyncExternalStore` 订阅站点
+`playback-resume-store`（chunk `playback-resume-store-*.js`）驱动，SPA 返回
+不重挂载，store 变更事件在我们的回写路径里到不了它。
+
+修法：壳层兜底（`tv-overlay.js` 阶段 10.3）。回写完成置 `resumeDirty`；
+popstate 落地首页后核对「本地最新一条 vs `.movie-resume-name` 片名列表」，
+不一致逐级刷新：① 派发 store 三事件（无副作用）→ ② 路由绕行逼重挂载 →
+③ 整页 reload（2 分钟限一次防循环）。骨架期先等（1.6s×4）再升级。
+日志 `TVRESUME fresh/detour/reload/giveup-*`。**待实机复测**（修复构建完成时
+电视正在使用，未覆盖安装）。

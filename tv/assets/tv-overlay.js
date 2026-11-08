@@ -979,8 +979,116 @@
       } catch (e) {}
       progressSyncing = false;
       log('TVPROGRESS', { synced: Math.round(want), from: Math.round(wasTime) });
+      resumeDirty = true;
     }, 2100);
     return true;
+  }
+
+  /* ── ②b 继续观看列表即时刷新（阶段 10.3） ────────────────────
+     实测（2026-11-08，鹤7 Pro）：进度回写本身没问题（localStorage
+     movie-search:v2:playback-resume:owner:guest 首条就是刚看的剧），
+     但退出播放器 SPA 回到首页后，站点的「继续观看」列表**不重读数据**：
+     列表由 React useSyncExternalStore 订阅 playback-resume-store 驱动，
+     实机逐层验证——
+       · 直接改 localStorage + 派发站点的 movie-search-playback-resume-updated
+         事件 → 已挂载的列表不变；
+       · pushState 到 /library/history 再回来 → 仍不变；
+       · 只有整页加载 / 站点自身真实路由跳转后的重挂载才读到新数据。
+     所以壳层自己兜底：回写置脏 → 回首页后核对「本地最新一条 vs 列表 DOM」，
+     不一致就逐级刷新：① 派发站点 store 事件（无副作用）→ ② 路由绕行
+     逼重挂载（同「追剧」菜单机制）→ ③ 整页 reload（冷启动水合必读
+     localStorage，实测有效；2 分钟内只允许一次防循环）。全程 TVRESUME 日志。 */
+  var RESUME_LS = 'movie-search:v2:playback-resume:owner:guest';
+  var resumeDirty = false;
+  var resumeChain = false;
+
+  function resumeLatest() {
+    try {
+      var arr = JSON.parse(localStorage.getItem(RESUME_LS) || 'null');
+      if (arr && arr.length && arr[0] && arr[0].title) { return arr[0]; }
+    } catch (e) {}
+    return null;
+  }
+
+  /** 列表里已有的片名。返回 null = 区块还没渲染出来（骨架/占位/未挂载）。 */
+  function resumeRailTitles() {
+    var sec = q('.movie-resume-section');
+    if (!sec) { return null; }
+    if (/(^|\s)movie-resume-placeholder(\s|$)/.test(sec.className || '')) { return null; }
+    var out = [], names = sec.querySelectorAll('.movie-resume-name');
+    for (var i = 0; i < names.length; i++) { out.push((names[i].textContent || '').trim()); }
+    return out;
+  }
+
+  function resumeNudge() {
+    try { window.dispatchEvent(new CustomEvent('movie-search-playback-resume-updated')); } catch (e) {}
+    try { window.dispatchEvent(new CustomEvent('movie-search-library-updated')); } catch (e) {}
+    try { window.dispatchEvent(new StorageEvent('storage', { key: 'playbackResume' })); } catch (e) {}
+  }
+
+  function resumeFinish() {
+    resumeDirty = false;
+    resumeChain = false;
+  }
+
+  function refreshResumeRail(step, waited) {
+    if (location.pathname !== '/') { resumeFinish(); return; }
+    var latest = resumeLatest();
+    if (!latest) { resumeFinish(); return; }
+    var titles = resumeRailTitles();
+    if (titles !== null && titles.indexOf(latest.title) >= 0) {
+      log('TVRESUME', { note: 'fresh', title: latest.title, step: step });
+      resumeFinish();
+      return;
+    }
+    if (titles === null) {
+      /* 首页列表还没挂出来（站点要 5~7 秒）：等，别急着升级手段 */
+      if ((waited || 0) < 4) {
+        setTimeout(function () { refreshResumeRail(step, (waited || 0) + 1); }, 1600);
+        return;
+      }
+      log('TVRESUME', { note: 'giveup-no-section', title: latest.title });
+      resumeFinish();
+      return;
+    }
+    if (step >= 2) {
+      var lastAt = 0;
+      try { lastAt = Number(sessionStorage.getItem('__tvResumeReloadAt') || 0); } catch (e) {}
+      if (Date.now() - lastAt < 120000) {
+        log('TVRESUME', { note: 'giveup-reload-recent', title: latest.title });
+        resumeFinish();
+        return;
+      }
+      try { sessionStorage.setItem('__tvResumeReloadAt', String(Date.now())); } catch (e) {}
+      log('TVRESUME', { note: 'reload', title: latest.title });
+      try { location.reload(); } catch (e) { resumeFinish(); }
+      return;
+    }
+    if (step === 0) {
+      resumeNudge();
+      setTimeout(function () { refreshResumeRail(1, 0); }, 1500);
+      return;
+    }
+    /* step 1：路由绕行——进一次「播放历史」再回首页，逼站点真正重挂载。
+       与「追剧」菜单同一机制（pushState + 手工 PopStateEvent）。 */
+    log('TVRESUME', { note: 'detour', title: latest.title });
+    try {
+      window.history.pushState({}, '', '/library/history');
+      window.dispatchEvent(new PopStateEvent('popstate', { state: {} }));
+    } catch (e) {}
+    setTimeout(function () {
+      try {
+        window.history.pushState({}, '', '/');
+        window.dispatchEvent(new PopStateEvent('popstate', { state: {} }));
+      } catch (e) {}
+      setTimeout(function () { refreshResumeRail(2, 0); }, 1800);
+    }, 2000);
+  }
+
+  function scheduleResumeRefresh() {
+    if (!resumeDirty || resumeChain) { return; }
+    resumeChain = true;
+    setTimeout(function () { refreshResumeRail(0, 0); }, 900);
   }
 
   /** 原生播放器退出时由 Java 侧回调。
@@ -1323,6 +1431,8 @@
         waitedMs: d.t ? (Date.now() - d.t) : -1 });
       dpReset();
     }
+    /* 阶段 10.3：播放器回写过进度后回到首页，核对「继续观看」列表。 */
+    if (location.pathname === '/') { scheduleResumeRefresh(); }
   }, false);
   window.addEventListener('hashchange', function () { close(); }, false);
 
