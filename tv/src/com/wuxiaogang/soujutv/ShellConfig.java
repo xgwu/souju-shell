@@ -15,8 +15,8 @@ import java.util.Set;
 public final class ShellConfig {
 
     public static final String TAG = "SoujuTV";
-    public static final String APP_VERSION = "0.10.3";
-    public static final int APP_BUILD = 18;
+    public static final String APP_VERSION = "0.10.4";
+    public static final int APP_BUILD = 19;
     public static final String BRIDGE_VERSION = "1.3.0-tv";
     /** 阶段 4 手机输入服务端口；换端口只改这里，二维码会同步变化。 */
     public static final int INPUT_SERVER_PORT = 8088;
@@ -51,11 +51,20 @@ public final class ShellConfig {
      */
     private static final Set<String> TRUSTED_HOSTS = new HashSet<>(Arrays.asList(
             "souju.ai", "hctd4.com",
-            "bpz2.com", "bpz3.top", "bpz3.com"
+            "bpz2.com", "bpz3.top", "bpz3.com", "souju13.com"
     ));
 
     /** 站内探测发现的中转域，运行时补充，仅本次进程有效。 */
     private static final Set<String> EXTRA_TRUSTED = new HashSet<>();
+
+    /**
+     * 站点域名轮换的新规律是 soujuN.com（0.10.4 实锤：souju.ai 302 到 souju13.com，
+     * 不在名单 → 不下发桥令牌 → playNative 静默失败卡「正在起播」；且 bridge.js
+     * 不注入 → Chrome 83 replaceChildren 补丁缺失 → /player 路由 React 渲染崩溃）。
+     * 按模式放行，下次换 souju14.com 不必发版。
+     */
+    private static final java.util.regex.Pattern ROTATING_HOST =
+            java.util.regex.Pattern.compile("^souju\\d+\\.com$");
 
     /**
      * 系统浏览器把 UA 伪造成 iPad Safari 5.0.2，会让站点走错误的移动版分支。
@@ -102,7 +111,7 @@ public final class ShellConfig {
         for (String base : EXTRA_TRUSTED) {
             if (h.equals(base) || h.endsWith("." + base)) return true;
         }
-        return false;
+        return ROTATING_HOST.matcher(h).matches();
     }
 
     public static void addTrustedHosts(String csv) {
